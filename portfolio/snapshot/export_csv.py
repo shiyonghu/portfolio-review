@@ -37,6 +37,16 @@ def export_snapshot_csv(conn: sqlite3.Connection, snapshot_date: str, out_path: 
         (snapshot_date,),
     ).fetchall()
 
+    total_row = conn.execute(
+        """
+        SELECT COALESCE(SUM(total_value), 0) AS total_net_worth
+        FROM snapshot_summary
+        WHERE snapshot_date = ?
+        """,
+        (snapshot_date,),
+    ).fetchone()
+    total_net_worth = float(total_row["total_net_worth"]) if total_row is not None else 0.0
+
     with out_path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(["DETAIL"])
@@ -78,5 +88,10 @@ def export_snapshot_csv(conn: sqlite3.Connection, snapshot_date: str, out_path: 
                     row["total_value"],
                 ]
             )
+
+        writer.writerow([])
+        writer.writerow(["TOTAL"])
+        writer.writerow(["snapshot_date", "total_net_worth"])
+        writer.writerow([snapshot_date, total_net_worth])
 
     return out_path

@@ -38,7 +38,10 @@ def test_export_snapshot_csv_has_detail_and_summary_without_quantity(tmp_path: P
 
     assert "DETAIL" in content
     assert "SUMMARY" in content
+    assert "TOTAL" in content
     assert "snapshot_date,account_name,asset_name,bucket,value,tax_treatment,owner_tag,source" in content
+    assert "snapshot_date,total_net_worth" in content
+    assert "2026-05-13,900000.0" in content
     assert "quantity" not in content.lower()
     assert "Primary Home" in content
     assert "RealEstate,taxable,household,900000.0" in content
