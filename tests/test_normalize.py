@@ -105,3 +105,35 @@ def test_depository_account_adds_cash_row_from_current_balance() -> None:
     assert cash_row["asset_name"] == "cash"
     assert cash_row["value"] == 2500.0
     assert cash_row["plaid_type"] == "cash"
+
+
+def test_included_depository_without_type_uses_balance_account_type() -> None:
+    """Runner passes included accounts with subtype only; type comes from balances."""
+    accounts = [{"account_id": "acc-savings", "subtype": "savings"}]
+    balances = {
+        "accounts": [
+            {
+                "account_id": "acc-savings",
+                "type": "depository",
+                "subtype": "savings",
+                "balances": {"current": 210.0},
+            },
+            {
+                "account_id": "acc-checking",
+                "type": "depository",
+                "subtype": "checking",
+                "balances": {"current": 110.0},
+            },
+        ]
+    }
+
+    rows = normalize_plaid_item(
+        accounts=accounts,
+        holdings_response={"holdings": [], "securities": []},
+        balances_response=balances,
+        snapshot_date="2026-05-13",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["account_id"] == "acc-savings"
+    assert rows[0]["value"] == 210.0

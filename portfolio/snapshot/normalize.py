@@ -33,6 +33,8 @@ def normalize_plaid_item(
             continue
 
         account_id = str(holding.get("account_id") or "")
+        if account_id not in account_by_id:
+            continue
         security = security_by_id.get(str(security_id), {})
         ticker = str(security.get("ticker_symbol") or "").strip()
         asset_name = ticker or str(security_id)
@@ -57,10 +59,14 @@ def normalize_plaid_item(
 
     for balance_account in balances_response.get("accounts", []):
         account_id = str(balance_account.get("account_id") or "")
-        account = account_by_id.get(account_id, balance_account)
-        account_type = str(account.get("type") or "").lower()
+        if account_id not in account_by_id:
+            continue
+
+        account_type = str(balance_account.get("type") or "").lower()
         if account_type != "depository":
             continue
+
+        account = account_by_id[account_id]
 
         current = (balance_account.get("balances") or {}).get("current")
         if current is None:
