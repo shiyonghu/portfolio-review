@@ -4,6 +4,7 @@ from datetime import date
 import typer
 import uvicorn
 
+from portfolio.agent.ask import ask_portfolio_question
 from portfolio.config import Settings
 from portfolio.db.connection import get_connection, init_db
 from portfolio.db.queries import list_accounts, update_account
@@ -12,6 +13,7 @@ from portfolio.managed.service import (
     append_valuation,
     list_latest,
 )
+from portfolio.snapshot.console import print_snapshot_summary
 from portfolio.snapshot.runner import run_snapshot
 
 app = typer.Typer(help="Portfolio review tool")
@@ -188,6 +190,7 @@ def snapshot(
     try:
         init_db(conn)
         result = run_snapshot(conn, settings, snapshot_date=snapshot_date)
+        print_snapshot_summary(conn, result["snapshot_date"])
     finally:
         conn.close()
 
@@ -196,6 +199,20 @@ def snapshot(
     )
     typer.echo(f"Raw payloads: {result['raw_dir']}")
     typer.echo(f"CSV export: {result['csv_path']}")
+
+
+@app.command("ask")
+def ask(question: str = typer.Argument(..., help="Natural-language portfolio question")) -> None:
+    """Ask the local Ollama-backed portfolio agent a question."""
+    settings = Settings.from_env()
+    conn = get_connection(settings.db_path)
+    try:
+        init_db(conn)
+        answer = ask_portfolio_question(conn, settings, question)
+    finally:
+        conn.close()
+
+    typer.echo(answer)
 
 
 app.add_typer(managed_app, name="managed")
