@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -132,10 +132,16 @@ def classify_snapshot(conn: sqlite3.Connection, snapshot_date: str, settings: Se
     conn.commit()
 
 
+def _json_default(value: Any) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return str(value)
+
+
 def _archive_raw_payload(base_dir: Path, item_id: str, suffix: str, payload: dict[str, Any]) -> None:
     base_dir.mkdir(parents=True, exist_ok=True)
     (base_dir / f"{item_id}-{suffix}.json").write_text(
-        json.dumps(payload, indent=2, sort_keys=True),
+        json.dumps(payload, indent=2, sort_keys=True, default=_json_default),
         encoding="utf-8",
     )
 
