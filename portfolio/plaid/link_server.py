@@ -17,6 +17,7 @@ from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.products import Products
 
+from portfolio.accounts.tax import derive_tax_treatment
 from portfolio.config import Settings
 from portfolio.db.connection import get_connection, init_db
 from portfolio.keychain.tokens import save_access_token
@@ -158,7 +159,11 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
                         account.subtype,
                         "household",
                         1,
-                        "taxable",
+                        derive_tax_treatment(
+                            account.subtype.value
+                            if hasattr(account.subtype, "value")
+                            else str(account.subtype)
+                        ),
                     ),
                 )
             conn.commit()
