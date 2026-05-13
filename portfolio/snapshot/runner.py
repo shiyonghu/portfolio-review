@@ -161,7 +161,11 @@ def run_snapshot(conn: sqlite3.Connection, settings: Settings, snapshot_date: st
         _archive_raw_payload(raw_dir, item_id, "balances", balances)
 
         accounts = conn.execute(
-            "SELECT account_id, subtype FROM accounts WHERE item_id = ?",
+            """
+            SELECT account_id, subtype
+            FROM accounts
+            WHERE item_id = ? AND included = 1
+            """,
             (item_id,),
         ).fetchall()
         plaid_rows.extend(

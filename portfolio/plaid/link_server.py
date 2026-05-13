@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -17,18 +16,15 @@ from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.products import Products
 
-from portfolio.accounts.tax import derive_tax_treatment
 from portfolio.config import Settings
 from portfolio.db.connection import get_connection, init_db
-from portfolio.keychain.tokens import save_access_token
+from portfolio.keychain.tokens import load_access_token, save_access_token
+from portfolio.plaid.accounts import serialize_plaid_accounts, upsert_plaid_accounts
 from portfolio.plaid.client import make_plaid_client
 
 
 def _ensure_db_initialized(settings: Settings) -> None:
-    db_path = Path(settings.db_path)
-    if db_path.exists():
-        return
-    conn = get_connection(db_path)
+    conn = get_connection(settings.db_path)
     try:
         init_db(conn)
     finally:
@@ -37,6 +33,11 @@ def _ensure_db_initialized(settings: Settings) -> None:
 
 class ExchangePublicTokenRequest(BaseModel):
     public_token: str
+
+
+class ConfirmAccountsRequest(BaseModel):
+    item_id: str
+    included_account_ids: list[str]
 
 
 def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
@@ -58,10 +59,41 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
   <body>
     <h1>Connect your account</h1>
     <button id="launch">Launch Plaid Link</button>
+    <section id="account-selection" hidden>
+      <h2>Select accounts to track</h2>
+      <p>Choose which accounts from this institution should be included in portfolio snapshots.</p>
+      <form id="account-form"></form>
+      <button type="submit" form="account-form" id="confirm-accounts">Save selection</button>
+    </section>
     <pre id="status"></pre>
     <script>
       const statusNode = document.getElementById("status");
       const button = document.getElementById("launch");
+      const selectionSection = document.getElementById("account-selection");
+      const accountForm = document.getElementById("account-form");
+      let pendingItemId = null;
+
+      function showAccountSelection(itemId, accounts) {
+        pendingItemId = itemId;
+        accountForm.innerHTML = "";
+        for (const account of accounts) {
+          const label = document.createElement("label");
+          label.style.display = "block";
+          label.style.marginBottom = "0.5rem";
+
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.name = "account_id";
+          checkbox.value = account.account_id;
+          checkbox.checked = true;
+
+          const subtype = account.subtype ? ` (${account.subtype})` : "";
+          label.append(checkbox, ` ${account.name}${subtype}`);
+          accountForm.append(label);
+        }
+        selectionSection.hidden = false;
+        statusNode.textContent = `Linked item ${itemId}. Select accounts to track.`;
+      }
 
       async function getLinkToken() {
         const response = await fetch("/api/create_link_token", { method: "POST" });
@@ -72,6 +104,8 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
 
       button.addEventListener("click", async () => {
         try {
+          selectionSection.hidden = true;
+          pendingItemId = null;
           const linkToken = await getLinkToken();
           const handler = Plaid.create({
             token: linkToken,
@@ -81,14 +115,49 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ public_token: publicToken }),
               });
+              if (!exchangeResponse.ok) {
+                const error = await exchangeResponse.json();
+                statusNode.textContent = error.detail || "Failed to exchange public token";
+                return;
+              }
               const result = await exchangeResponse.json();
-              statusNode.textContent = JSON.stringify(result, null, 2);
+              showAccountSelection(result.item_id, result.accounts);
             },
             onExit: (error) => {
               if (error) statusNode.textContent = error.display_message || "Plaid Link exited";
             },
           });
           handler.open();
+        } catch (error) {
+          statusNode.textContent = String(error);
+        }
+      });
+
+      accountForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!pendingItemId) return;
+
+        const includedAccountIds = Array.from(
+          accountForm.querySelectorAll('input[name="account_id"]:checked'),
+        ).map((input) => input.value);
+
+        try {
+          const response = await fetch("/api/confirm_accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              item_id: pendingItemId,
+              included_account_ids: includedAccountIds,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            statusNode.textContent = result.detail || "Failed to save account selection";
+            return;
+          }
+          statusNode.textContent = JSON.stringify(result, null, 2);
+          selectionSection.hidden = true;
+          pendingItemId = null;
         } catch (error) {
           statusNode.textContent = String(error);
         }
@@ -138,34 +207,6 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
                 """,
                 (item_id, None, "ok", now),
             )
-            for account in accounts_response.accounts:
-                conn.execute(
-                    """
-                    INSERT INTO accounts (
-                        account_id, item_id, source, name, subtype, owner_tag, included, tax_treatment
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(account_id) DO UPDATE SET
-                        item_id = excluded.item_id,
-                        source = excluded.source,
-                        name = excluded.name,
-                        subtype = excluded.subtype
-                    """,
-                    (
-                        account.account_id,
-                        item_id,
-                        "plaid",
-                        account.name,
-                        account.subtype,
-                        "household",
-                        1,
-                        derive_tax_treatment(
-                            account.subtype.value
-                            if hasattr(account.subtype, "value")
-                            else str(account.subtype)
-                        ),
-                    ),
-                )
             conn.commit()
         except Exception as exc:  # pragma: no cover - defensive rollback branch
             conn.rollback()
@@ -173,7 +214,52 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
         finally:
             conn.close()
 
-        return {"item_id": item_id, "account_count": len(accounts_response.accounts)}
+        return {
+            "item_id": item_id,
+            "accounts": serialize_plaid_accounts(accounts_response.accounts),
+        }
+
+    @app.post("/api/confirm_accounts")
+    def confirm_accounts(payload: ConfirmAccountsRequest) -> dict[str, Any]:
+        access_token = load_access_token(payload.item_id)
+        if not access_token:
+            raise HTTPException(status_code=404, detail=f"No access token for item {payload.item_id}")
+
+        accounts_response = app.state.plaid_client.accounts_get(
+            AccountsGetRequest(access_token=access_token)
+        )
+        now = datetime.now(tz=timezone.utc).isoformat()
+
+        conn = get_connection(app.state.settings.db_path)
+        try:
+            conn.execute(
+                """
+                INSERT INTO items (item_id, institution_name, status, last_synced_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(item_id) DO UPDATE SET
+                    status = excluded.status,
+                    last_synced_at = excluded.last_synced_at
+                """,
+                (payload.item_id, None, "ok", now),
+            )
+            account_count = upsert_plaid_accounts(
+                conn,
+                payload.item_id,
+                accounts_response.accounts,
+                payload.included_account_ids,
+            )
+        except Exception as exc:  # pragma: no cover - defensive rollback branch
+            conn.rollback()
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            conn.close()
+
+        included_count = len(payload.included_account_ids)
+        return {
+            "item_id": payload.item_id,
+            "account_count": account_count,
+            "included_count": included_count,
+        }
 
     return app
 

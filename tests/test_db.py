@@ -38,6 +38,18 @@ def test_init_db_creates_all_tables(tmp_path: Path) -> None:
     assert names.issuperset(EXPECTED_TABLES)
 
 
+def test_init_db_is_idempotent(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    conn = get_connection(db_path)
+    init_db(conn)
+    init_db(conn)
+    tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).fetchall()
+    names = {r[0] for r in tables}
+    assert names.issuperset(EXPECTED_TABLES)
+
+
 def test_foreign_keys_enabled(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     conn = get_connection(db_path)

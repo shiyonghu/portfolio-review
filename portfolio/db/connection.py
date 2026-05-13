@@ -11,6 +11,15 @@ def get_connection(db_path: Path | str) -> sqlite3.Connection:
     return conn
 
 
+def db_is_initialized(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='items' LIMIT 1"
+    ).fetchone()
+    return row is not None
+
+
 def init_db(conn: sqlite3.Connection) -> None:
+    if db_is_initialized(conn):
+        return
     conn.executescript(SCHEMA_PATH.read_text())
     conn.commit()
