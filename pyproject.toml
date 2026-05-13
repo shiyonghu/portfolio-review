@@ -1,0 +1,24 @@
+[project]
+name = "portfolio-review"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "typer>=0.12",
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "plaid-python>=27",
+  "keyring>=25",
+  "pyyaml>=6",
+  "httpx>=0.27",
+  "matplotlib>=3.9",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+portfolio = "portfolio.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
