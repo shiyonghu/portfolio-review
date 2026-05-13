@@ -58,7 +58,7 @@ def accounts_list() -> None:
         for row in rows:
             included = "yes" if row["included"] else "no"
             typer.echo(
-                f"{row['account_id']}  {row['name']}  included={included}  "
+                f"{row['account_id']}  {row['name']}  type={row['type']}  included={included}  "
                 f"owner={row['owner_tag']}  tax={row['tax_treatment']}  ({row['subtype']})"
             )
     finally:

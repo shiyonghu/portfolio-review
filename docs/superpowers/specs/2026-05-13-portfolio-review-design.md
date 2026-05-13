@@ -133,6 +133,7 @@ Ollama with tools:
 | `item_id` | FK to `items`; NULL for manual accounts |
 | `source` | `plaid` or `user_managed` |
 | `name` | Account display name |
+| `type` | Plaid account type (`investment`, `depository`, `credit`, `loan`, `other`); NULL for user-managed synthetic accounts |
 | `subtype` | Plaid account subtype |
 | `owner_tag` | Household owner label |
 | `included` | 1 = included in snapshots |

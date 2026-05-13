@@ -30,16 +30,18 @@ def upsert_plaid_accounts(
     for account in accounts:
         account_id = str(account.account_id)
         subtype = _plaid_str(account.subtype)
+        account_type = _plaid_str(getattr(account, "type", None))
         conn.execute(
             """
             INSERT INTO accounts (
-                account_id, item_id, source, name, subtype, owner_tag, included, tax_treatment
+                account_id, item_id, source, name, type, subtype, owner_tag, included, tax_treatment
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id) DO UPDATE SET
                 item_id = excluded.item_id,
                 source = excluded.source,
                 name = excluded.name,
+                type = excluded.type,
                 subtype = excluded.subtype,
                 included = excluded.included
             """,
@@ -48,6 +50,7 @@ def upsert_plaid_accounts(
                 item_id,
                 "plaid",
                 account.name,
+                account_type,
                 subtype,
                 "household",
                 1 if account_id in included else 0,

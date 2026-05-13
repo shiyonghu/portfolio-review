@@ -53,14 +53,15 @@ def add_managed_asset(
     conn.execute(
         """
         INSERT INTO accounts (
-            account_id, item_id, source, name, subtype, owner_tag, included, tax_treatment
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            account_id, item_id, source, name, type, subtype, owner_tag, included, tax_treatment
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             account_id,
             None,
             "user_managed",
             f"Managed: {asset_name}",
+            None,
             asset_kind,
             owner_tag,
             1,

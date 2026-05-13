@@ -168,7 +168,7 @@ def run_snapshot(conn: sqlite3.Connection, settings: Settings, snapshot_date: st
 
         accounts = conn.execute(
             """
-            SELECT account_id, subtype
+            SELECT account_id, subtype, type
             FROM accounts
             WHERE item_id = ? AND included = 1
             """,

@@ -62,11 +62,10 @@ def normalize_plaid_item(
         if account_id not in account_by_id:
             continue
 
-        account_type = str(balance_account.get("type") or "").lower()
+        account = account_by_id[account_id]
+        account_type = str(account.get("type") or balance_account.get("type") or "").lower()
         if account_type != "depository":
             continue
-
-        account = account_by_id[account_id]
 
         current = (balance_account.get("balances") or {}).get("current")
         if current is None:

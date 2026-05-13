@@ -125,10 +125,10 @@ def test_confirm_accounts_persists_included_selection(mock_load_token, tmp_path)
 
     conn = get_connection(tmp_path / "portfolio.db")
     rows = conn.execute(
-        "SELECT account_id, included, tax_treatment FROM accounts ORDER BY account_id"
+        "SELECT account_id, type, included, tax_treatment FROM accounts ORDER BY account_id"
     ).fetchall()
     conn.close()
     assert [dict(row) for row in rows] == [
-        {"account_id": "acct-1", "included": 0, "tax_treatment": "taxable"},
-        {"account_id": "acct-2", "included": 1, "tax_treatment": "tax-advantaged"},
+        {"account_id": "acct-1", "type": "investment", "included": 0, "tax_treatment": "taxable"},
+        {"account_id": "acct-2", "type": "investment", "included": 1, "tax_treatment": "tax-advantaged"},
     ]

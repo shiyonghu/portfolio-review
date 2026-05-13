@@ -7,7 +7,7 @@ from typing import Any
 def list_accounts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT account_id, name, included, owner_tag, tax_treatment, subtype, source
+        SELECT account_id, name, included, owner_tag, tax_treatment, type, subtype, source
         FROM accounts
         ORDER BY name
         """

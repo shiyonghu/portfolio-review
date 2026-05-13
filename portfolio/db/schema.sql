@@ -12,6 +12,7 @@ CREATE TABLE accounts (
     item_id TEXT REFERENCES items (item_id) ON DELETE CASCADE,
     source TEXT NOT NULL CHECK (source IN ('plaid', 'user_managed')),
     name TEXT,
+    type TEXT,
     subtype TEXT,
     owner_tag TEXT,
     included INTEGER NOT NULL DEFAULT 1,
