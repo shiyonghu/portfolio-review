@@ -209,6 +209,8 @@ def ask(question: str = typer.Argument(..., help="Natural-language portfolio que
     try:
         init_db(conn)
         answer = ask_portfolio_question(conn, settings, question)
+    except RuntimeError as exc:
+        raise typer.Exit(str(exc)) from exc
     finally:
         conn.close()
 

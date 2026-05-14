@@ -5,8 +5,9 @@ import sqlite3
 from typing import Any
 
 import httpx
+from httpx import ConnectError, HTTPStatusError
 
-from portfolio.agent.tools import run_sql
+from portfolio.agent.tools import SQL_SCHEMA_HINT, run_sql_for_agent
 from portfolio.charts.plot import plot_line, plot_pie
 from portfolio.config import Settings
 
@@ -17,13 +18,19 @@ def _tool_definitions() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "run_sql",
-                "description": "Run read-only SELECT SQL on the local portfolio database.",
+                "description": (
+                    "Run read-only SELECT SQL on the local portfolio database. "
+                    + SQL_SCHEMA_HINT
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "A single SELECT query without semicolons.",
+                            "description": (
+                                "A single SELECT query without semicolons. "
+                                "Use only tables listed in the tool description."
+                            ),
                         }
                     },
                     "required": ["query"],
@@ -81,7 +88,7 @@ def _dispatch_tool(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
     if tool_name == "run_sql":
-        return {"rows": run_sql(conn, str(arguments["query"]))}
+        return run_sql_for_agent(conn, str(arguments["query"]))
     if tool_name == "plot_pie":
         path = plot_pie(
             labels=[str(v) for v in arguments["labels"]],
@@ -107,18 +114,33 @@ def chat_with_tools(
 ) -> str:
     messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
 
+    base_url = settings.ollama_base_url.rstrip("/")
     with httpx.Client(timeout=60.0) as client:
         for _ in range(max_rounds):
-            response = client.post(
-                f"{settings.ollama_base_url.rstrip('/')}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": messages,
-                    "stream": False,
-                    "tools": _tool_definitions(),
-                },
-            )
-            response.raise_for_status()
+            try:
+                response = client.post(
+                    f"{base_url}/api/chat",
+                    json={
+                        "model": settings.ollama_model,
+                        "messages": messages,
+                        "stream": False,
+                        "tools": _tool_definitions(),
+                    },
+                )
+                response.raise_for_status()
+            except ConnectError as exc:
+                raise RuntimeError(
+                    f"Cannot reach Ollama at {base_url}. "
+                    "Start Ollama (e.g. open the Ollama app or run `ollama serve`) "
+                    f"and pull the model with `ollama pull {settings.ollama_model}`."
+                ) from exc
+            except HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    raise RuntimeError(
+                        f"Ollama model {settings.ollama_model!r} was not found. "
+                        f"Pull it with `ollama pull {settings.ollama_model}`."
+                    ) from exc
+                raise
             payload = response.json()
             message = payload.get("message", {})
             tool_calls = message.get("tool_calls") or []
@@ -143,7 +165,7 @@ def chat_with_tools(
                 messages.append(
                     {
                         "role": "tool",
-                        "name": tool_name,
+                        "tool_name": tool_name,
                         "content": json.dumps(result, default=str),
                     }
                 )

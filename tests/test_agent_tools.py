@@ -43,3 +43,15 @@ def test_run_sql_caps_rows_at_500(tmp_path) -> None:
     rows = run_sql(conn, "SELECT item_id FROM items ORDER BY item_id")
 
     assert len(rows) == 500
+
+
+def test_run_sql_unknown_table_returns_error_payload(tmp_path) -> None:
+    """LLM-generated SQL may reference non-existent tables; agent should recover, not crash."""
+    from portfolio.agent.tools import run_sql_for_agent
+
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+    out = run_sql_for_agent(conn, "SELECT 1 FROM portfolio LIMIT 1")
+    assert out["rows"] == []
+    assert "no such table" in out["error"].lower()
+    assert "hint" in out

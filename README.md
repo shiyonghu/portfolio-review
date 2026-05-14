@@ -86,7 +86,7 @@ docs/superpowers/     # Design spec and implementation plan
 - **macOS** (Keychain integration via `keyring`)
 - **Python 3.12+**
 - [Plaid](https://dashboard.plaid.com/) developer account with Investments product enabled
-- **[Ollama](https://ollama.com/)** running locally (required for `portfolio ask`; optional for snapshots unless you extend LLM classification)
+- **[Ollama](https://ollama.com/)** for `portfolio ask` only — see [Ollama setup](#ollama-setup-for-portfolio-ask) below (not required for snapshots or Plaid linking)
 
 ## Installation
 
@@ -111,17 +111,142 @@ PLAID_CLIENT_ID=<from Plaid dashboard>
 PLAID_SECRET=<sandbox or production secret>
 PLAID_ENV=sandbox          # sandbox | production
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1
+OLLAMA_MODEL=qwen3.6
 PORTFOLIO_DB_PATH=portfolio.db
 ```
 
 Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env` or access tokens.
+
+`OLLAMA_MODEL` must match a model you have pulled in Ollama (see [Ollama setup](#ollama-setup-for-portfolio-ask)). Good tool-calling options include `qwen3.6`, `qwen2.5`, and `llama3.1`.
 
 Activate the virtual environment in every new shell before running commands:
 
 ```bash
 source .venv/bin/activate
 ```
+
+## Ollama setup (for `portfolio ask`)
+
+`portfolio ask` talks to a local [Ollama](https://ollama.com/) server over HTTP. Snapshots, Plaid linking, and managed assets do **not** need Ollama. If you only use those commands, skip this section.
+
+Assume a fresh checkout with Ollama not installed yet.
+
+### 1. Install Ollama
+
+**Homebrew (recommended on macOS):**
+
+```bash
+brew install ollama
+```
+
+**Or** download the macOS app from [ollama.com/download](https://ollama.com/download) and install it like any other application.
+
+Verify the CLI is available:
+
+```bash
+ollama --version
+```
+
+### 2. Run Ollama in the background
+
+Pick one approach and stick with it. You do **not** need a dedicated terminal tab left open forever.
+
+**Option A — Homebrew service (recommended):**
+
+```bash
+brew services start ollama
+```
+
+Ollama starts in the background and survives closing the terminal. It can also restart automatically after reboot depending on your Homebrew setup.
+
+**Option B — Ollama desktop app:**
+
+Open **Ollama** from Applications. It runs from the menu bar and keeps the server up without a terminal.
+
+**Option C — Foreground in a terminal (manual):**
+
+```bash
+ollama serve
+```
+
+This works for quick tests, but **closing that terminal tab or pressing Ctrl+C stops Ollama**, and `portfolio ask` will fail with a connection error until you start it again.
+
+### 3. Configure the model in `.env`
+
+Set `OLLAMA_MODEL` in `.env` to the model tag you want the agent to use:
+
+```bash
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3.6
+```
+
+Other models that work well for tool calling include `qwen2.5` and `llama3.1`. The value must match the tag shown by `ollama list` exactly.
+
+### 4. Pull the model
+
+Download the model once (first pull can take several minutes and several GB of disk):
+
+```bash
+ollama pull qwen3.6
+```
+
+Use the same name as `OLLAMA_MODEL` in `.env`. To switch models later, update `.env` and run `ollama pull <new-model>`.
+
+List installed models:
+
+```bash
+ollama list
+```
+
+### 5. Check that Ollama is running
+
+**API reachable** (should return JSON, not “connection refused”):
+
+```bash
+curl -s http://localhost:11434/api/tags
+```
+
+**Models installed:**
+
+```bash
+ollama list
+```
+
+**Homebrew service status** (if you use `brew services`):
+
+```bash
+brew services list | grep ollama
+```
+
+`started` means the background service is running. `none` means it is not registered as a service (you may still have Ollama running via the app or a manual `ollama serve`).
+
+**Process check:**
+
+```bash
+pgrep -l ollama
+```
+
+### 6. Stop or restart Ollama
+
+| How you started it | Stop | Restart |
+|--------------------|------|---------|
+| `brew services start ollama` | `brew services stop ollama` | `brew services restart ollama` |
+| Ollama desktop app | Quit Ollama from the menu bar | Open the app again |
+| `ollama serve` in a terminal | Ctrl+C in that terminal | Run `ollama serve` again |
+
+Stopping Ollama only affects local LLM use. It does not touch `portfolio.db`, snapshots, or Plaid tokens.
+
+If other tools on your Mac also use Ollama, avoid stopping the shared daemon unless you intend to shut down all local LLM workloads.
+
+### 7. Try `portfolio ask`
+
+With the venv active, Ollama running, the model pulled, and at least one snapshot in the database:
+
+```bash
+portfolio ask "Plot a pie chart of asset buckets for the latest snapshot"
+```
+
+Chart PNGs are written under `outputs/`. If Ollama is down or the model is missing, the CLI prints a short error with the fix (`ollama serve` / `brew services start ollama`, `ollama pull <model>`).
 
 ## User flow
 
@@ -198,7 +323,7 @@ Re-running on the **same date** replaces that day's data; it does not append dup
 
 ### 5. Ask questions
 
-With Ollama running and at least one snapshot in the database:
+Requires [Ollama setup](#ollama-setup-for-portfolio-ask) and at least one snapshot in the database:
 
 ```bash
 portfolio ask "What is my equity allocation in tax-advantaged accounts?"
@@ -325,9 +450,16 @@ If a token is missing or invalid, delete it and run `portfolio setup` to link ag
 
 ### Agent / Ollama
 
-- Confirm Ollama is running: `curl http://localhost:11434/api/tags`
-- Pull the model from `.env`: `ollama pull llama3.1`
-- Chart output lands in `outputs/`
+See [Ollama setup](#ollama-setup-for-portfolio-ask) for install, background service, model pull, and stop/restart.
+
+Quick checks:
+
+```bash
+curl -s http://localhost:11434/api/tags   # server up?
+ollama list                                # model from OLLAMA_MODEL installed?
+```
+
+Chart output lands in `outputs/`.
 
 ### Run tests
 
