@@ -111,13 +111,13 @@ PLAID_CLIENT_ID=<from Plaid dashboard>
 PLAID_SECRET=<sandbox or production secret>
 PLAID_ENV=sandbox          # sandbox | production
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3.6
+OLLAMA_MODEL=qwen3.5:4b
 PORTFOLIO_DB_PATH=portfolio.db
 ```
 
 Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env` or access tokens.
 
-`OLLAMA_MODEL` must match a model you have pulled in Ollama (see [Ollama setup](#ollama-setup-for-portfolio-ask)). Good tool-calling options include `qwen3.6`, `qwen2.5`, and `llama3.1`.
+`OLLAMA_MODEL` must match a model you have pulled in Ollama (see [Ollama setup](#ollama-setup-for-portfolio-ask)). Good tool-calling options include `qwen3.5:4b`, `qwen2.5`, and `llama3.1`.
 
 Activate the virtual environment in every new shell before running commands:
 
@@ -177,7 +177,7 @@ Set `OLLAMA_MODEL` in `.env` to the model tag you want the agent to use:
 
 ```bash
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3.6
+OLLAMA_MODEL=qwen3.5:4b
 ```
 
 Other models that work well for tool calling include `qwen2.5` and `llama3.1`. The value must match the tag shown by `ollama list` exactly.
@@ -187,7 +187,7 @@ Other models that work well for tool calling include `qwen2.5` and `llama3.1`. T
 Download the model once (first pull can take several minutes and several GB of disk):
 
 ```bash
-ollama pull qwen3.6
+ollama pull qwen3.5:4b
 ```
 
 Use the same name as `OLLAMA_MODEL` in `.env`. To switch models later, update `.env` and run `ollama pull <new-model>`.
