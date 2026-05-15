@@ -169,15 +169,17 @@ def create_app(settings: Settings, plaid_client: Any | None = None) -> FastAPI:
 
     @app.post("/api/create_link_token")
     def create_link_token() -> dict[str, str]:
-        plaid_request = LinkTokenCreateRequest(
-            user=LinkTokenCreateRequestUser(client_user_id=f"portfolio-{uuid4()}"),
-            client_name="Portfolio Review",
-            products=[Products("investments")],
-            country_codes=[CountryCode("US")],
-            language="en",
-            # Register http://localhost:8765 as an allowed redirect URI in Plaid.
-            redirect_uri="http://localhost:8765",
-        )
+        link_kwargs: dict[str, Any] = {
+            "user": LinkTokenCreateRequestUser(client_user_id=f"portfolio-{uuid4()}"),
+            "client_name": "Portfolio Review",
+            "products": [Products("investments")],
+            "country_codes": [CountryCode("US")],
+            "language": "en",
+        }
+        if app.state.settings.plaid_env == "sandbox":
+            # Sandbox only: http localhost allowed by Plaid. Register in Dashboard allowlist.
+            link_kwargs["redirect_uri"] = "http://localhost:8765"
+        plaid_request = LinkTokenCreateRequest(**link_kwargs)
         response = app.state.plaid_client.link_token_create(plaid_request)
         return {"link_token": response.link_token}
 

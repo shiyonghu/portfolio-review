@@ -23,6 +23,34 @@ def _settings(tmp_path) -> Settings:
     )
 
 
+def _settings_production(tmp_path) -> Settings:
+    return Settings(
+        plaid_client_id="test-client-id",
+        plaid_secret="test-secret",
+        plaid_env="production",
+        db_path=str(tmp_path / "portfolio.db"),
+        ollama_base_url="http://localhost:11434",
+        ollama_model="llama3.1",
+    )
+
+
+def test_create_link_token_production_omits_redirect_uri_in_request_body(tmp_path) -> None:
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.link_token = "link-production-456"
+    mock_client.link_token_create.return_value = mock_response
+    app = create_app(_settings_production(tmp_path), plaid_client=mock_client)
+
+    with TestClient(app) as client:
+        response = client.post("/api/create_link_token")
+
+    assert response.status_code == 200
+    mock_client.link_token_create.assert_called_once()
+    request = mock_client.link_token_create.call_args[0][0]
+    payload = request.to_dict()
+    assert "redirect_uri" not in payload, payload
+
+
 def _account(account_id: str, name: str, subtype: str) -> MagicMock:
     account = MagicMock()
     account.account_id = account_id
@@ -52,6 +80,7 @@ def test_create_link_token_returns_token(tmp_path) -> None:
 
     mock_client.link_token_create.assert_called_once()
     request = mock_client.link_token_create.call_args[0][0]
+    assert request.to_dict().get("redirect_uri") == "http://localhost:8765"
     assert Products("investments") in request.products
     assert CountryCode("US") in request.country_codes
 

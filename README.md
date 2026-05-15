@@ -117,6 +117,10 @@ PORTFOLIO_DB_PATH=portfolio.db
 
 Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env` or access tokens.
 
+#### Plaid Production and OAuth (desktop only)
+
+With `PLAID_ENV=production`, this app **does not** send a `redirect_uri` to Plaid, so you are not required to register an HTTPS localhost URL. OAuth institutions open in a **popup or new tab** in a normal desktop browser; **allow popups** for `http://localhost:8765` (or whatever host you use). **Mobile browsers and in-app webviews** are not supported for OAuth with this setup—use a desktop browser. Sandbox continues to send `http://localhost:8765` as `redirect_uri` for optional redirect-flow testing; add that URI to the Sandbox allowlist in the Plaid Dashboard.
+
 `OLLAMA_MODEL` must match a model you have pulled in Ollama (see [Ollama setup](#ollama-setup-for-portfolio-ask)). Good tool-calling options include `qwen3.5:4b`, `qwen2.5`, and `llama3.1`.
 
 Activate the virtual environment in every new shell before running commands:

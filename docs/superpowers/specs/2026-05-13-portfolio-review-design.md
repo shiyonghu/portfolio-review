@@ -250,6 +250,35 @@ Cash, Bond, Equity, Gold, Commodity, Crypto, **RealEstate**.
 
 YAML is human-editable; SQLite `classifications` is the query cache.
 
+### Interactive LLM classification during `portfolio snapshot` (v1)
+
+When rule-based classification and YAML overrides both fail to assign a bucket for an `asset_name`, the snapshot pipeline **must** obtain a suggestion from the local **Ollama** HTTP API (`OLLAMA_BASE_URL`, `OLLAMA_MODEL` from env), present it in the **terminal**, and persist a row in `classifications` **only after explicit user confirmation**. The stored `source` for any bucket chosen through this path is **`llm_confirmed`** (including when the user overrides the model suggestion via manual bucket pick in the same prompt).
+
+**Scope:** v1 assumes a **normal interactive terminal**. There is **no** non-interactive or CI escape hatch; piped/automated runs may block on stdin when unknown assets exist.
+
+**When it runs:** After holdings for the snapshot date are written to `holdings_snapshot`, the classifier iterates over distinct `asset_name` values for that date (see ordering below). If `classifications` already has a row for that `asset_name`, it is left unchanged. Otherwise YAML + rules run as today; if the result is still unclassified, the Ollama + confirm flow runs for that asset.
+
+**Deterministic ordering:** Pending assets are processed in ascending lexicographic order of `asset_name` so runs are reproducible.
+
+**Holding context sent to the model:** JSON-safe subset including at least: `asset_name`, `display_name` (a representative value from `holdings_snapshot` for that name and date, e.g. `MAX(display_name)` in SQL), `plaid_type`, `plaid_subtype`, `source`, and for `user_managed` rows the resolved `asset_kind` from active `user_managed_holdings` (same logic as today’s classifier).
+
+**Model output:** A single JSON object, e.g. `{"bucket":"Equity","reason":"<short string>"}`. The `bucket` value must be one of: Cash, Bond, Equity, Gold, Commodity, Crypto, RealEstate. Malformed JSON, unknown bucket strings, or HTTP/connect failures are shown to the user as errors; the user may still **manually** pick a bucket or **skip** the asset.
+
+**Terminal UX (single asset):** Print a short summary card (identifiers + Plaid labels + suggested bucket and reason, or an error if Ollama failed). Then prompt for one line of input:
+
+| Key / action | Behavior |
+|--------------|----------|
+| `y` | Accept the suggested bucket (if a valid suggestion exists; otherwise re-prompt or treat as invalid) |
+| `n` | Skip: do not insert/update `classifications` for this asset; leave bucket null on holdings for this name until a later run or YAML edit |
+| `m` | Manual: user chooses one of the seven allowed buckets from a numbered menu |
+| `q` | Quit the interactive classification phase: stop prompting for further pending assets; **already confirmed** assets in this run remain persisted; remaining unknowns stay unclassified for this snapshot |
+
+After the loop, the existing bulk `UPDATE holdings_snapshot … JOIN classifications` behavior applies so confirmed rows get `bucket` populated for the snapshot date.
+
+**Testability:** The stdin/print path is implemented with **injectable** `read_line` / `write` callables (defaulting to `input` / `print`) so automated tests do not require a TTY.
+
+**Out of scope (v1):** Separate `portfolio … review` command, prefetch/suggestion staging tables, writing accepted buckets to `classification.yaml`, and non-interactive snapshot flags.
+
 ## CSV export (derived)
 
 **Detail:** `snapshot_date`, account name, `asset_name`, `bucket`, `value`, `tax_treatment`, `owner_tag`, `source` — **no quantity**.
@@ -271,7 +300,7 @@ PLAID_ENV=sandbox   # sandbox | production
 
 ## Open items
 
-- **Ollama model** — smoke-test tool calling (e.g. `llama3.1`, `qwen2.5`).
+- **Ollama model** — smoke-test tool calling (e.g. `llama3.1`, `qwen2.5`) and interactive classification during `portfolio snapshot` (see above); implementation plan: [`2026-05-14-interactive-llm-classification.md`](../plans/2026-05-14-interactive-llm-classification.md).
 
 ## References
 
