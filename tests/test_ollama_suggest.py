@@ -87,3 +87,26 @@ def test_fetch_bucket_suggestion_uses_chat_api(
     assert captured["body"]["model"] == "test-model"
     assert captured["body"]["stream"] is False
     assert captured["body"]["format"] == "json"
+
+
+def test_fetch_bucket_suggestion_timeout_returns_soft_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("simulated read timeout")
+
+    settings = Settings(
+        plaid_client_id="",
+        plaid_secret="",
+        plaid_env="sandbox",
+        db_path=":memory:",
+        ollama_base_url="http://ollama.test",
+        ollama_model="test-model",
+    )
+    holding = {"asset_name": "SLOW", "source": "plaid"}
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        result = fetch_bucket_suggestion(holding, settings, http_client=client)
+
+    assert result.suggested_bucket is None
+    assert result.error is not None
+    assert "60" in result.error
+    assert "Ollama" in result.error

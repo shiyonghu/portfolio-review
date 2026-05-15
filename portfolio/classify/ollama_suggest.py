@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from httpx import ConnectError, HTTPStatusError
+from httpx import ConnectError, HTTPStatusError, TimeoutException
 
 from portfolio.classify.buckets import ORDERED_BUCKETS, is_allowed_bucket
 from portfolio.config import Settings
+
+_OLLAMA_CHAT_TIMEOUT_SEC = 60.0
 
 
 def _extract_markdown_fence_body(text: str) -> str | None:
@@ -123,6 +125,16 @@ def fetch_bucket_suggestion(
                 reason="",
                 error=f"Ollama request failed: HTTP {exc.response.status_code}",
             )
+        except TimeoutException:
+            return BucketSuggestion(
+                suggested_bucket=None,
+                reason="",
+                error=(
+                    f"Ollama did not respond within {_OLLAMA_CHAT_TIMEOUT_SEC:.0f}s "
+                    f"at {base_url}. The model may be loading or slow to generate; "
+                    "try again, use a smaller/faster model, or pick a bucket manually (m) or skip (n)."
+                ),
+            )
         payload = response.json()
         message = payload.get("message", {})
         content = str(message.get("content", "") or "")
@@ -133,5 +145,5 @@ def fetch_bucket_suggestion(
 
     if http_client is not None:
         return _do_request(http_client)
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=_OLLAMA_CHAT_TIMEOUT_SEC) as client:
         return _do_request(client)
