@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from portfolio.classify.ollama_suggest import suggest_bucket
+from portfolio.classify.ollama_suggest import fetch_bucket_suggestion
+from portfolio.classify.prompt import prompt_confirmed_bucket
 from portfolio.classify.rules import classify_holding_with_source
 from portfolio.classify.yaml_store import load_classification_overrides
 from portfolio.config import Settings
@@ -74,13 +76,30 @@ def _lookup_asset_kind(conn: sqlite3.Connection, asset_name: str) -> str | None:
     return str(row["asset_kind"]) if row is not None else None
 
 
-def classify_snapshot(conn: sqlite3.Connection, snapshot_date: str, settings: Settings) -> None:
+def classify_snapshot(
+    conn: sqlite3.Connection,
+    snapshot_date: str,
+    settings: Settings,
+    *,
+    read_line: Callable[[str], str] | None = None,
+    write: Callable[[str], None] | None = None,
+) -> None:
     overrides = load_classification_overrides()
+    read = read_line if read_line is not None else input
+    write_fn = write if write is not None else (lambda m: print(m, end="", flush=True))
+
     rows = conn.execute(
         """
-        SELECT DISTINCT asset_name, plaid_type, plaid_subtype, source
+        SELECT
+            asset_name,
+            MAX(display_name) AS display_name,
+            MAX(plaid_type) AS plaid_type,
+            MAX(plaid_subtype) AS plaid_subtype,
+            MAX(source) AS source
         FROM holdings_snapshot
         WHERE snapshot_date = ?
+        GROUP BY asset_name
+        ORDER BY asset_name
         """,
         (snapshot_date,),
     ).fetchall()
@@ -99,23 +118,42 @@ def classify_snapshot(conn: sqlite3.Connection, snapshot_date: str, settings: Se
             holding["asset_kind"] = _lookup_asset_kind(conn, asset_name)
 
         bucket, source = classify_holding_with_source(holding, overrides)
-        if bucket is None:
-            bucket = suggest_bucket(holding, settings)
-            source = "llm_confirmed" if bucket else None
-        if bucket is None or source is None:
+        if bucket is not None and source is not None:
+            conn.execute(
+                """
+                INSERT INTO classifications (asset_name, bucket, source, classified_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(asset_name) DO UPDATE SET
+                    bucket = excluded.bucket,
+                    source = excluded.source,
+                    classified_at = excluded.classified_at
+                """,
+                (asset_name, bucket, source),
+            )
             continue
 
-        conn.execute(
-            """
-            INSERT INTO classifications (asset_name, bucket, source, classified_at)
-            VALUES (?, ?, ?, datetime('now'))
-            ON CONFLICT(asset_name) DO UPDATE SET
-                bucket = excluded.bucket,
-                source = excluded.source,
-                classified_at = excluded.classified_at
-            """,
-            (asset_name, bucket, source),
+        suggestion = fetch_bucket_suggestion(holding, settings)
+        action, chosen = prompt_confirmed_bucket(
+            asset_name=asset_name,
+            suggestion=suggestion,
+            read_line=read,
+            write=write_fn,
         )
+        if action == "quit":
+            break
+        if action == "persist" and chosen:
+            conn.execute(
+                """
+                INSERT INTO classifications (asset_name, bucket, source, classified_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(asset_name) DO UPDATE SET
+                    bucket = excluded.bucket,
+                    source = excluded.source,
+                    classified_at = excluded.classified_at
+                """,
+                (asset_name, chosen, "llm_confirmed"),
+            )
+        # skip: no row written
 
     conn.execute(
         """
