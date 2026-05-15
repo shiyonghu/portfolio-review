@@ -4,23 +4,32 @@ A local CLI for macOS that links investment and bank accounts through Plaid, run
 
 ## Purpose
 
-Households often spread assets across many brokerage, retirement, and bank accounts. This tool answers recurring questions in one place:
+Households often spread assets across many brokerage, retirement, and bank accounts. This tool can collect your assets from various accounts from Plaid or manual input, and answer questions such as:
 
 - What is total net worth, and how is it split across asset types (cash, bonds, equity, gold, commodities, crypto, real estate)?
 - How much sits in **taxable** vs **tax-advantaged** accounts?
-- How has allocation changed since the last snapshot?
+- How has allocation changed since Dec 2025?
 
-Each snapshot is stored locally so you can compare over time. Raw Plaid responses are archived for debugging; normalized holdings and rollups live in SQLite and CSV exports.
+This tool can also draw charts for you.
+
+This tool is built for sensitive financial data:
+
+- **Local-only** — all information and stored and processed locally
+- **Your own Plaid account and access tokens** — client secrets in `.env`; access tokens in the macOS Keychain
+- **Snapshot history** — past runs in SQLite and on disk for allocation and net-worth comparisons
+- **Local LLM** — Ollama queries your database to answer portfolio questions and draw charts; no cloud model sees your data
 
 ## What it does
 
-| Capability | Description |
-|------------|-------------|
-| **Plaid linking** | Connect institutions in the browser; access tokens stay in the macOS Keychain |
-| **Account preferences** | Include or exclude accounts, set owner tags, override tax treatment |
-| **User-managed assets** | Track real estate, private equity, and other assets Plaid does not see |
-| **Snapshots** | Fetch holdings, classify, rebuild summaries, export CSV, print a console report |
-| **Ask agent** | Query snapshot data via Ollama with read-only SQL and chart tools |
+
+| Capability              | Description                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| **Plaid linking**       | Connect institutions in the browser; access tokens stay in the macOS Keychain   |
+| **Account preferences** | Include or exclude accounts, set owner tags, override tax treatment             |
+| **User-managed assets** | Track real estate, private equity, and other assets Plaid does not see          |
+| **Snapshots**           | Fetch holdings, classify, rebuild summaries, export CSV, print a console report |
+| **Ask agent**           | Query snapshot data via Ollama with read-only SQL and chart tools               |
+
 
 **Out of scope for v1:** web UI, scheduled runs, tax lots, trade execution, multi-currency, per-owner dashboards.
 
@@ -43,17 +52,21 @@ flowchart LR
     Agent --> Charts[outputs/*.png]
 ```
 
+
+
 ### Tech stack
 
-| Layer | Choice |
-|-------|--------|
-| Language | Python 3.12+ |
-| CLI | Typer |
-| Plaid Link UI | FastAPI + uvicorn (`localhost:8765`) |
-| Database | SQLite (`portfolio.db`) |
-| Secrets | `.env` for Plaid client credentials; Keychain for per-item access tokens |
-| LLM | Ollama HTTP API |
-| Charts | matplotlib |
+
+| Layer         | Choice                                                                   |
+| ------------- | ------------------------------------------------------------------------ |
+| Language      | Python 3.12+                                                             |
+| CLI           | Typer                                                                    |
+| Plaid Link UI | FastAPI + uvicorn (`localhost:8765`)                                     |
+| Database      | SQLite (`portfolio.db`)                                                  |
+| Secrets       | `.env` for Plaid client credentials; Keychain for per-item access tokens |
+| LLM           | Ollama HTTP API                                                          |
+| Charts        | matplotlib                                                               |
+
 
 ### Project layout
 
@@ -71,7 +84,7 @@ portfolio/
   charts/
 classification.yaml   # Manual ticker → bucket overrides
 snapshots/raw/        # Archived Plaid JSON per run (gitignored)
-snapshots/csv/        # Exported snapshot CSVs
+snapshots/csv/        # Exported snapshot CSVs (gitignored)
 outputs/              # Chart PNGs from the agent (gitignored)
 docs/superpowers/     # Design spec and implementation plan
 ```
@@ -116,12 +129,6 @@ PORTFOLIO_DB_PATH=portfolio.db
 ```
 
 Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env` or access tokens.
-
-#### Plaid Production and OAuth (desktop only)
-
-With `PLAID_ENV=production`, this app **does not** send a `redirect_uri` to Plaid, so you are not required to register an HTTPS localhost URL. OAuth institutions open in a **popup or new tab** in a normal desktop browser; **allow popups** for `http://localhost:8765` (or whatever host you use). **Mobile browsers and in-app webviews** are not supported for OAuth with this setup—use a desktop browser. Sandbox continues to send `http://localhost:8765` as `redirect_uri` for optional redirect-flow testing; add that URI to the Sandbox allowlist in the Plaid Dashboard.
-
-`OLLAMA_MODEL` must match a model you have pulled in Ollama (see [Ollama setup](#ollama-setup-for-portfolio-ask)). Good tool-calling options include `qwen3.5:4b`, `qwen2.5`, and `llama3.1`.
 
 Activate the virtual environment in every new shell before running commands:
 
@@ -234,25 +241,17 @@ pgrep -l ollama
 
 ### 6. Stop or restart Ollama
 
-| How you started it | Stop | Restart |
-|--------------------|------|---------|
-| `brew services start ollama` | `brew services stop ollama` | `brew services restart ollama` |
-| Ollama desktop app | Quit Ollama from the menu bar | Open the app again |
-| `ollama serve` in a terminal | Ctrl+C in that terminal | Run `ollama serve` again |
+
+| How you started it           | Stop                          | Restart                        |
+| ---------------------------- | ----------------------------- | ------------------------------ |
+| `brew services start ollama` | `brew services stop ollama`   | `brew services restart ollama` |
+| Ollama desktop app           | Quit Ollama from the menu bar | Open the app again             |
+| `ollama serve` in a terminal | Ctrl+C in that terminal       | Run `ollama serve` again       |
+
 
 Stopping Ollama only affects local LLM use. It does not touch `portfolio.db`, snapshots, or Plaid tokens.
 
 If other tools on your Mac also use Ollama, avoid stopping the shared daemon unless you intend to shut down all local LLM workloads.
-
-### 7. Try `portfolio ask`
-
-With the venv active, Ollama running, the model pulled, and at least one snapshot in the database:
-
-```bash
-portfolio ask "Plot a pie chart of asset buckets for the latest snapshot"
-```
-
-Chart PNGs are written under `outputs/`. If Ollama is down or the model is missing, the CLI prints a short error with the fix (`ollama serve` / `brew services start ollama`, `ollama pull <model>`).
 
 ## User flow
 
@@ -322,7 +321,7 @@ The pipeline:
 2. Archives raw JSON under `snapshots/raw/<date>/`
 3. Replaces any existing rows for that date in `holdings_snapshot` and `snapshot_summary`
 4. Classifies holdings: YAML overrides → Plaid metadata rules → cached `classifications` table; for each remaining unknown `asset_name` (sorted), optionally calls Ollama for a JSON bucket suggestion, then prompts on stdin (`y` accept, `n` skip, `m` manual bucket menu, `q` stop prompting). Rows are written with `source = llm_confirmed` only after you confirm.
-5. Rebuilds rollups and writes `snapshots/csv/<date>.csv`
+5. Rebuilds rollups and export a human-readable csv file with summary `snapshots/csv/<date>.csv`
 6. Prints net worth, bucket allocation, drift vs the previous snapshot, re-auth warnings, and unclassified holdings
 
 Re-running on the **same date** replaces that day's data; it does not append duplicates.
@@ -352,27 +351,31 @@ Buckets: `Cash`, `Bond`, `Equity`, `Gold`, `Commodity`, `Crypto`, `RealEstate`. 
 
 ## CLI reference
 
-| Command | Description |
-|---------|-------------|
-| `portfolio setup` | Start Plaid Link server and link accounts |
-| `portfolio accounts-list` | List accounts and preferences |
-| `portfolio accounts-configure` | Update inclusion, owner tag, or tax treatment |
-| `portfolio managed add` | Register a user-managed asset |
-| `portfolio managed update <name>` | Append a new valuation |
-| `portfolio managed list` | Show latest valuations |
-| `portfolio snapshot` | Full snapshot pipeline |
-| `portfolio ask "<question>"` | Ollama-backed portfolio Q&A |
+
+| Command                           | Description                                   |
+| --------------------------------- | --------------------------------------------- |
+| `portfolio setup`                 | Start Plaid Link server and link accounts     |
+| `portfolio accounts-list`         | List accounts and preferences                 |
+| `portfolio accounts-configure`    | Update inclusion, owner tag, or tax treatment |
+| `portfolio managed add`           | Register a user-managed asset                 |
+| `portfolio managed update <name>` | Append a new valuation                        |
+| `portfolio managed list`          | Show latest valuations                        |
+| `portfolio snapshot`              | Full snapshot pipeline                        |
+| `portfolio ask "<question>"`      | Ollama-backed portfolio Q&A                   |
+
 
 ## Data model (quick reference)
 
-| Table | Role |
-|-------|------|
-| `items` | Plaid institutions / link health |
-| `accounts` | Plaid and synthetic user-managed accounts |
-| `user_managed_holdings` | Valuation history for manual assets |
-| `holdings_snapshot` | Point-in-time holdings (Plaid + user-managed) |
-| `classifications` | Cached asset_name → bucket |
-| `snapshot_summary` | Materialized rollups by bucket, tax treatment, owner |
+
+| Table                   | Role                                                 |
+| ----------------------- | ---------------------------------------------------- |
+| `items`                 | Plaid institutions / link health                     |
+| `accounts`              | Plaid and synthetic user-managed accounts            |
+| `user_managed_holdings` | Valuation history for manual assets                  |
+| `holdings_snapshot`     | Point-in-time holdings (Plaid + user-managed)        |
+| `classifications`       | Cached asset_name → bucket                           |
+| `snapshot_summary`      | Materialized rollups by bucket, tax treatment, owner |
+
 
 Net worth for a date: `SUM(total_value) FROM snapshot_summary WHERE snapshot_date = ?`.
 
@@ -476,14 +479,16 @@ pytest
 
 ## Reset and clean slate
 
-| Goal | Action |
-|------|--------|
-| **Drop all local portfolio data** | `rm portfolio.db` (schema is recreated on next command) |
-| **Remove Plaid tokens** | Delete Keychain entries for service `portfolio-review` (see above) |
-| **Clear a single snapshot date** | Re-run `portfolio snapshot --snapshot-date <date>` to replace, or `DELETE FROM holdings_snapshot WHERE snapshot_date = ?` and matching `snapshot_summary` rows |
-| **Clear classification cache** | `DELETE FROM classifications` then re-snapshot |
-| **Remove raw archives** | `rm -rf snapshots/raw/<date>/` |
-| **Full unlink + restart** | Delete `portfolio.db`, delete all Keychain tokens for `portfolio-review`, run `portfolio setup` |
+
+| Goal                              | Action                                                                                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Drop all local portfolio data** | `rm portfolio.db` (schema is recreated on next command)                                                                                                        |
+| **Remove Plaid tokens**           | Delete Keychain entries for service `portfolio-review` (see above)                                                                                             |
+| **Clear a single snapshot date**  | Re-run `portfolio snapshot --snapshot-date <date>` to replace, or `DELETE FROM holdings_snapshot WHERE snapshot_date = ?` and matching `snapshot_summary` rows |
+| **Clear classification cache**    | `DELETE FROM classifications` then re-snapshot                                                                                                                 |
+| **Remove raw archives**           | `rm -rf snapshots/raw/<date>/`                                                                                                                                 |
+| **Full unlink + restart**         | Delete `portfolio.db`, delete all Keychain tokens for `portfolio-review`, run `portfolio setup`                                                                |
+
 
 `portfolio.db`, `snapshots/raw/`, `outputs/`, and `.env` are gitignored; CSV files under `snapshots/csv/` are kept in the repo unless you remove them locally.
 
@@ -498,3 +503,4 @@ pytest
 
 - [Plaid Investments API](https://plaid.com/docs/api/products/investments/)
 - [Plaid Link quickstart](https://github.com/plaid/quickstart)
+
