@@ -1,6 +1,6 @@
 # Portfolio Review
 
-A local CLI for macOS that links investment and bank accounts through Plaid, runs portfolio snapshots into SQLite, classifies holdings into asset buckets, and answers natural-language questions with a local Ollama agent.
+A local CLI for macOS that links investment and bank accounts through Plaid or pull assets from manual input, runs portfolio snapshots into SQLite, classifies holdings into asset buckets, and answers natural-language questions with a local Ollama agent.
 
 ## Purpose
 
