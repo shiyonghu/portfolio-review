@@ -86,7 +86,7 @@ docs/superpowers/     # Design spec and implementation plan
 - **macOS** (Keychain integration via `keyring`)
 - **Python 3.12+**
 - [Plaid](https://dashboard.plaid.com/) developer account with Investments product enabled
-- **[Ollama](https://ollama.com/)** for `portfolio ask` only — see [Ollama setup](#ollama-setup-for-portfolio-ask) below (not required for snapshots or Plaid linking)
+- **[Ollama](https://ollama.com/)** for `portfolio ask` and for **interactive classification** during `portfolio snapshot` when some holdings are still unknown after YAML and rules — see [Ollama setup](#ollama-setup-for-portfolio-ask). Plaid linking alone does not require Ollama.
 
 ## Installation
 
@@ -125,9 +125,11 @@ Activate the virtual environment in every new shell before running commands:
 source .venv/bin/activate
 ```
 
-## Ollama setup (for `portfolio ask`)
+## Ollama setup (for `portfolio ask` and snapshot classification)
 
-`portfolio ask` talks to a local [Ollama](https://ollama.com/) server over HTTP. Snapshots, Plaid linking, and managed assets do **not** need Ollama. If you only use those commands, skip this section.
+`portfolio ask` and the **LLM suggestion step** during `portfolio snapshot` talk to a local [Ollama](https://ollama.com/) server over HTTP (`OLLAMA_BASE_URL`, `OLLAMA_MODEL` in `.env`; see [.env.example](.env.example)). If every holding is already covered by `classification.yaml`, Plaid rules, or a cached `classifications` row, a snapshot run never calls Ollama. When unknown assets remain, the CLI prompts on stdin and needs Ollama for suggestions unless you skip or quit each prompt.
+
+Plaid linking and managed assets do **not** need Ollama by themselves.
 
 Assume a fresh checkout with Ollama not installed yet.
 
@@ -315,7 +317,7 @@ The pipeline:
 1. Fetches Plaid balances and holdings for all linked items (included accounts only)
 2. Archives raw JSON under `snapshots/raw/<date>/`
 3. Replaces any existing rows for that date in `holdings_snapshot` and `snapshot_summary`
-4. Classifies holdings (YAML overrides → Plaid metadata rules → cached `classifications` table)
+4. Classifies holdings: YAML overrides → Plaid metadata rules → cached `classifications` table; for each remaining unknown `asset_name` (sorted), optionally calls Ollama for a JSON bucket suggestion, then prompts on stdin (`y` accept, `n` skip, `m` manual bucket menu, `q` stop prompting). Rows are written with `source = llm_confirmed` only after you confirm.
 5. Rebuilds rollups and writes `snapshots/csv/<date>.csv`
 6. Prints net worth, bucket allocation, drift vs the previous snapshot, re-auth warnings, and unclassified holdings
 

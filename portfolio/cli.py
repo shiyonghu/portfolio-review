@@ -184,7 +184,16 @@ def snapshot(
         help="ISO date; defaults to today",
     ),
 ) -> None:
-    """Run full snapshot pipeline and export CSV."""
+    """Run full snapshot pipeline and export CSV.
+
+    After YAML overrides and Plaid metadata rules, any asset still without a
+    bucket is classified interactively: the CLI calls the local Ollama HTTP API
+    for a JSON suggestion, prints it, and asks for confirmation on stdin (`y` /
+    `n` / `m` / `q`). Ollama must be running with `OLLAMA_BASE_URL` and
+    `OLLAMA_MODEL` configured (see README) when unknown assets exist; piped or
+    non-interactive runs may block on stdin until each unknown is answered or
+    you quit the classifier phase.
+    """
     settings = Settings.from_env()
     conn = get_connection(settings.db_path)
     try:
