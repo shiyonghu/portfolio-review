@@ -19,7 +19,7 @@ def _settings(tmp_path) -> Settings:
         plaid_env="sandbox",
         db_path=str(tmp_path / "portfolio.db"),
         ollama_base_url="http://localhost:11434",
-        ollama_model="llama3.1",
+        ollama_model="qwen3.5:4b",
     )
 
 
@@ -30,7 +30,7 @@ def _settings_production(tmp_path) -> Settings:
         plaid_env="production",
         db_path=str(tmp_path / "portfolio.db"),
         ollama_base_url="http://localhost:11434",
-        ollama_model="llama3.1",
+        ollama_model="qwen3.5:4b",
     )
 
 

@@ -83,9 +83,10 @@ def test_fetch_bucket_suggestion_uses_chat_api(
     assert captured["body"]["model"] == "test-model"
     assert captured["body"]["stream"] is False
     assert captured["body"]["format"] == "json"
+    assert captured["body"]["think"] is False
     assert captured["body"]["options"] == {
         "temperature": 0,
-        "num_predict": 30,
+        "num_predict": 50,
     }
     prompt = captured["body"]["messages"][-1]["content"]
     assert "reason" not in prompt.lower()
@@ -112,5 +113,5 @@ def test_fetch_bucket_suggestion_timeout_returns_soft_error() -> None:
 
     assert result.suggested_bucket is None
     assert result.error is not None
-    assert "60" in result.error
+    assert "10" in result.error
     assert "Ollama" in result.error

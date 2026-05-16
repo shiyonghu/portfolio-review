@@ -11,8 +11,8 @@ from httpx import ConnectError, HTTPStatusError, TimeoutException
 from portfolio.classify.buckets import ORDERED_BUCKETS, is_allowed_bucket
 from portfolio.config import Settings
 
-_OLLAMA_CHAT_TIMEOUT_SEC = 60.0
-_OLLAMA_NUM_PREDICT = 30
+_OLLAMA_CHAT_TIMEOUT_SEC = 10.0
+_OLLAMA_NUM_PREDICT = 50
 
 
 def _extract_markdown_fence_body(text: str) -> str | None:
@@ -92,6 +92,7 @@ def fetch_bucket_suggestion(
         "messages": [{"role": "user", "content": _build_user_prompt(holding)}],
         "stream": False,
         "format": "json",
+        "think": False,
         "options": {
             "temperature": 0,
             "num_predict": _OLLAMA_NUM_PREDICT,

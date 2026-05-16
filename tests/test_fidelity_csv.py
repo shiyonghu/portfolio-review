@@ -35,7 +35,7 @@ def _write_csv(tmp_path: Path, content: str = CSV_TEXT) -> Path:
 
 
 def _settings(tmp_path: Path) -> Settings:
-    return Settings("", "", "sandbox", str(tmp_path / "portfolio.db"), "http://localhost:11434", "llama3.1")
+    return Settings("", "", "sandbox", str(tmp_path / "portfolio.db"), "http://localhost:11434", "qwen3.5:4b")
 
 
 def test_discover_accounts_ignores_trailer_rows(tmp_path: Path) -> None:
