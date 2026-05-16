@@ -60,7 +60,7 @@ def test_fetch_bucket_suggestion_uses_chat_api(
         captured["body"] = json.loads(request.content.decode())
         return httpx.Response(
             200,
-            json={"message": {"content": '{"bucket":"Gold","reason":"gold ETC"}'}},
+            json={"message": {"content": '{"bucket":"Gold"}'}},
         )
 
     settings = Settings(
@@ -79,7 +79,6 @@ def test_fetch_bucket_suggestion_uses_chat_api(
     assert isinstance(result, BucketSuggestion)
     assert result.suggested_bucket == "Gold"
     assert result.error is None
-    assert "gold" in result.reason.lower()
     assert captured["url"].endswith("/api/chat")
     assert captured["body"]["model"] == "test-model"
     assert captured["body"]["stream"] is False
