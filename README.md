@@ -1,10 +1,10 @@
 # Portfolio Review
 
-A local CLI for macOS that links investment and bank accounts through Plaid or pull assets from manual input, runs portfolio snapshots into SQLite, classifies holdings into asset buckets, and answers natural-language questions with a local Ollama agent.
+A local CLI for macOS that links investment and bank accounts through Plaid, imports Fidelity positions CSVs, or pulls assets from manual input, runs portfolio snapshots into SQLite, classifies holdings into asset buckets, and answers natural-language questions with a local Ollama agent.
 
 ## Purpose
 
-Households often spread assets across many brokerage, retirement, and bank accounts. This tool can collect your assets from various accounts from Plaid or manual input, and answer questions such as:
+Households often spread assets across many brokerage, retirement, and bank accounts. This tool can collect your assets from Plaid, Fidelity CSV exports, or manual input, and answer questions such as:
 
 - What is total net worth, and how is it split across asset types (cash, bonds, equity, gold, commodities, crypto, real estate)?
 - How much sits in **taxable** vs **tax-advantaged** accounts?
@@ -25,6 +25,7 @@ This tool is built for sensitive financial data:
 | Capability              | Description                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------- |
 | **Plaid linking**       | Connect institutions in the browser; access tokens stay in the macOS Keychain   |
+| **Fidelity CSV import** | Import downloaded Fidelity positions for accounts that Plaid does not cover     |
 | **Account preferences** | Include or exclude accounts, set owner tags, override tax treatment             |
 | **User-managed assets** | Track real estate, private equity, and other assets Plaid does not see          |
 | **Snapshots**           | Fetch holdings, classify, rebuild summaries, export CSV, print a console report |
@@ -40,10 +41,14 @@ flowchart LR
     User[User CLI] --> Setup[portfolio setup]
     Setup --> Link[Plaid Link in browser]
     Link --> Keychain[macOS Keychain]
+    User --> FidelitySetup[portfolio fidelity setup]
+    FidelitySetup --> FidelityCSV[Downloaded Fidelity positions CSV]
     User --> Snap[portfolio snapshot]
     Snap --> Plaid[Plaid APIs]
+    FidelityCSV --> Snap
     Plaid --> Raw["snapshots/raw/YYYY-MM-DD/*.json"]
-    Raw --> Norm[Normalize + user-managed]
+    Raw --> Norm[Normalize sources + user-managed]
+    Snap --> Norm
     Norm --> Classify[Classify: YAML → rules → cache]
     Classify --> DB[(portfolio.db)]
     DB --> CSV["snapshots/csv/YYYY-MM-DD.csv"]
@@ -79,6 +84,7 @@ portfolio/
   db/                 # Schema and queries
   snapshot/           # Fetch, normalize, export, console summary
   classify/           # YAML overrides, Plaid rules, classification cache
+  fidelity/           # Fidelity positions CSV import and account setup
   managed/            # User-managed asset valuations
   agent/              # Ollama agent + tools (SQL, charts)
   charts/
@@ -98,7 +104,7 @@ docs/superpowers/     # Design spec and implementation plan
 
 - **macOS** (Keychain integration via `keyring`)
 - **Python 3.12+**
-- [Plaid](https://dashboard.plaid.com/) developer account with Investments product enabled
+- [Plaid](https://dashboard.plaid.com/) developer account with Investments product enabled, if you want Plaid linking
 - **[Ollama](https://ollama.com/)** for `portfolio ask` and for **interactive classification** during `portfolio snapshot` when some holdings are still unknown after YAML and rules — see [Ollama setup](#ollama-setup-for-portfolio-ask). Plaid linking alone does not require Ollama.
 
 ## Installation
@@ -111,13 +117,13 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-Copy environment template and fill in Plaid credentials:
+Copy the environment template and fill in the settings you need:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+For Plaid linking, edit `.env` with your Plaid credentials:
 
 ```bash
 PLAID_CLIENT_ID=<from Plaid dashboard>
@@ -128,7 +134,7 @@ OLLAMA_MODEL=qwen3.5:4b
 PORTFOLIO_DB_PATH=portfolio.db
 ```
 
-Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env` or access tokens.
+Use `PLAID_ENV=sandbox` until Production access is approved. Never commit `.env`, access tokens, or downloaded brokerage CSVs.
 
 Activate the virtual environment in every new shell before running commands:
 
@@ -286,7 +292,17 @@ portfolio accounts-configure --account-id <id> --tax-treatment tax-advantaged
 
 Tax treatment is either `taxable` or `tax-advantaged` (401k, IRA, Roth, HSA, 529, etc.). Subtype-based defaults apply unless you override.
 
-### 3. Add assets Plaid does not track (optional)
+### 3. Configure Fidelity CSV accounts (optional)
+
+If you use Fidelity CSV imports, configure the accounts once before snapshot runs:
+
+```bash
+portfolio fidelity setup --csv snapshots/Portfolio_Positions_May-15-2026.csv
+```
+
+The setup flow stores account preferences in `portfolio.db`; included accounts require a tax treatment.
+
+### 4. Add assets automated sources do not track (optional)
 
 ```bash
 portfolio managed add \
@@ -303,7 +319,7 @@ portfolio managed list
 
 `asset_kind` is one of `real_estate`, `private_equity`, or `other`. Snapshots carry forward the latest valuation on or before the snapshot date.
 
-### 4. Run a snapshot
+### 5. Run a snapshot
 
 ```bash
 portfolio snapshot
@@ -315,18 +331,24 @@ Optional backdated or historical date:
 portfolio snapshot --snapshot-date 2026-05-13
 ```
 
+Optional Fidelity CSV import:
+
+```bash
+portfolio snapshot --fidelity-csv snapshots/Portfolio_Positions_May-15-2026.csv
+```
+
 The pipeline:
 
-1. Fetches Plaid balances and holdings for all linked items (included accounts only)
-2. Archives raw JSON under `snapshots/raw/<date>/`
+1. Fetches Plaid balances and holdings for all linked items and reads any Fidelity CSV passed on the command line (included accounts only)
+2. Archives raw Plaid JSON under `snapshots/raw/<date>/`
 3. Replaces any existing rows for that date in `holdings_snapshot` and `snapshot_summary`
 4. Classifies holdings: YAML overrides → Plaid metadata rules → cached `classifications` table; for each remaining unknown `asset_name` (sorted), optionally calls Ollama for a JSON bucket suggestion, then prompts on stdin (`y` accept, `n` skip, `m` manual bucket menu, `q` stop prompting). Rows are written with `source = llm_confirmed` only after you confirm.
-5. Rebuilds rollups and export a human-readable csv file with summary `snapshots/csv/<date>.csv`
+5. Rebuilds rollups and exports a human-readable csv file with summary `snapshots/csv/<date>.csv`
 6. Prints net worth, bucket allocation, drift vs the previous snapshot, re-auth warnings, and unclassified holdings
 
 Re-running on the **same date** replaces that day's data; it does not append duplicates.
 
-### 5. Ask questions
+### 6. Ask questions
 
 Requires [Ollama setup](#ollama-setup-for-portfolio-ask) and at least one snapshot in the database:
 
@@ -337,7 +359,7 @@ portfolio ask "Plot a pie chart of asset buckets for the latest snapshot"
 
 The agent uses read-only SQL against `portfolio.db` and can write chart PNGs to `outputs/`.
 
-### 6. Tune classification (as needed)
+### 7. Tune classification (as needed)
 
 Edit `classification.yaml` for tickers or names that rules do not resolve:
 
@@ -349,32 +371,54 @@ GLD: Gold
 
 Buckets: `Cash`, `Bond`, `Equity`, `Gold`, `Commodity`, `Crypto`, `RealEstate`. After editing YAML, run `portfolio snapshot` again (or delete rows from `classifications` for specific assets — see below).
 
+## Fidelity CSV accounts
+
+Fidelity accounts that are not available through Plaid can be imported from a downloaded positions CSV.
+
+First configure accounts from the CSV:
+
+```bash
+portfolio fidelity setup --csv snapshots/Portfolio_Positions_May-15-2026.csv
+```
+
+For each account, the setup flow asks whether to include it. Included accounts also require a tax treatment: `taxable` or `tax-advantaged`. Owner tags default to `household`.
+
+Then include the CSV during a snapshot:
+
+```bash
+portfolio snapshot --fidelity-csv snapshots/Portfolio_Positions_May-15-2026.csv
+```
+
+Rows with an empty `Symbol` are ignored, and the Fidelity `Type` column is ignored because it describes margin eligibility rather than asset type.
+
 ## CLI reference
 
 
-| Command                           | Description                                   |
-| --------------------------------- | --------------------------------------------- |
-| `portfolio setup`                 | Start Plaid Link server and link accounts     |
-| `portfolio accounts-list`         | List accounts and preferences                 |
-| `portfolio accounts-configure`    | Update inclusion, owner tag, or tax treatment |
-| `portfolio managed add`           | Register a user-managed asset                 |
-| `portfolio managed update <name>` | Append a new valuation                        |
-| `portfolio managed list`          | Show latest valuations                        |
-| `portfolio snapshot`              | Full snapshot pipeline                        |
-| `portfolio ask "<question>"`      | Ollama-backed portfolio Q&A                   |
+| Command                                    | Description                                      |
+| ------------------------------------------ | ------------------------------------------------ |
+| `portfolio setup`                          | Start Plaid Link server and link accounts        |
+| `portfolio fidelity setup`                 | Configure accounts from a Fidelity positions CSV |
+| `portfolio accounts-list`                  | List accounts and preferences                    |
+| `portfolio accounts-configure`             | Update inclusion, owner tag, or tax treatment    |
+| `portfolio managed add`                    | Register a user-managed asset                    |
+| `portfolio managed update <name>`          | Append a new valuation                           |
+| `portfolio managed list`                   | Show latest valuations                           |
+| `portfolio snapshot`                       | Full snapshot pipeline                           |
+| `portfolio snapshot --fidelity-csv <path>` | Include Fidelity CSV positions in a snapshot     |
+| `portfolio ask "<question>"`               | Ollama-backed portfolio Q&A                      |
 
 
 ## Data model (quick reference)
 
 
-| Table                   | Role                                                 |
-| ----------------------- | ---------------------------------------------------- |
-| `items`                 | Plaid institutions / link health                     |
-| `accounts`              | Plaid and synthetic user-managed accounts            |
-| `user_managed_holdings` | Valuation history for manual assets                  |
-| `holdings_snapshot`     | Point-in-time holdings (Plaid + user-managed)        |
-| `classifications`       | Cached asset_name → bucket                           |
-| `snapshot_summary`      | Materialized rollups by bucket, tax treatment, owner |
+| Table                   | Role                                                                        |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `items`                 | Plaid institutions / link health                                            |
+| `accounts`              | Plaid, Fidelity CSV, and synthetic user-managed accounts                    |
+| `user_managed_holdings` | Valuation history for manual assets                                         |
+| `holdings_snapshot`     | Point-in-time holdings from Plaid, Fidelity CSV, and user-managed assets     |
+| `classifications`       | Cached asset_name → bucket                                                  |
+| `snapshot_summary`      | Materialized rollups by bucket, tax treatment, owner                        |
 
 
 Net worth for a date: `SUM(total_value) FROM snapshot_summary WHERE snapshot_date = ?`.
@@ -490,12 +534,13 @@ pytest
 | **Full unlink + restart**         | Delete `portfolio.db`, delete all Keychain tokens for `portfolio-review`, run `portfolio setup`                                                                |
 
 
-`portfolio.db`, `snapshots/raw/`, `outputs/`, and `.env` are gitignored; CSV files under `snapshots/csv/` are kept in the repo unless you remove them locally.
+`portfolio.db`, `snapshots/`, `outputs/`, and `.env` are gitignored.
 
 ## Security notes
 
 - Plaid **client id/secret** belong in `.env` only
 - Plaid **access tokens** belong in Keychain only — never in the database or git
+- Downloaded brokerage CSVs can contain sensitive data; keep them under ignored paths such as `snapshots/`
 - The Link server binds to `127.0.0.1:8765` and is meant for local setup only
 - Rotate Plaid secrets if they are ever exposed
 

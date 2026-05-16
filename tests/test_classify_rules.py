@@ -1,8 +1,21 @@
-from portfolio.classify.rules import classify_holding
+from portfolio.classify.rules import classify_holding, classify_holding_with_source
 
 
 def test_cash_rule_from_asset_name() -> None:
     assert classify_holding({"asset_name": "cash", "plaid_type": None}) == "Cash"
+
+
+def test_cash_equivalent_rule_classifies_as_cash() -> None:
+    assert classify_holding_with_source({"asset_name": "SPAXX**", "is_cash_equivalent": 1}) == (
+        "Cash",
+        "rule",
+    )
+
+
+def test_yaml_override_wins_over_cash_equivalent_rule() -> None:
+    holding = {"asset_name": "SPAXX**", "is_cash_equivalent": 1}
+    overrides = {"SPAXX**": "Bond"}
+    assert classify_holding_with_source(holding, overrides) == ("Bond", "yaml")
 
 
 def test_fixed_income_maps_to_bond() -> None:

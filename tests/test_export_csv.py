@@ -45,3 +45,38 @@ def test_export_snapshot_csv_has_detail_and_summary_without_quantity(tmp_path: P
     assert "quantity" not in content.lower()
     assert "Primary Home" in content
     assert "RealEstate,taxable,household,900000.0" in content
+
+
+def test_export_snapshot_csv_includes_fidelity_source(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO accounts (account_id, item_id, source, name, type, owner_tag, included, tax_treatment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("fid-1", None, "fidelity", "Fidelity Brokerage", "investment", "household", 1, "taxable"),
+    )
+    conn.execute(
+        """
+        INSERT INTO holdings_snapshot (
+            snapshot_date, account_id, source, asset_name, display_name, value, bucket
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("2026-05-16", "fid-1", "fidelity", "SPY", "SPDR S&P 500 ETF", 1000, "Equity"),
+    )
+    conn.execute(
+        """
+        INSERT INTO snapshot_summary (snapshot_date, bucket, tax_treatment, owner_tag, total_value)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("2026-05-16", "Equity", "taxable", "household", 1000),
+    )
+    conn.commit()
+
+    out_path = tmp_path / "snapshot.csv"
+    export_snapshot_csv(conn, "2026-05-16", out_path)
+    content = out_path.read_text()
+
+    assert "Fidelity Brokerage,SPY,Equity,1000.0,taxable,household,fidelity" in content

@@ -10,13 +10,16 @@ CREATE TABLE items (
 CREATE TABLE accounts (
     account_id TEXT PRIMARY KEY NOT NULL,
     item_id TEXT REFERENCES items (item_id) ON DELETE CASCADE,
-    source TEXT NOT NULL CHECK (source IN ('plaid', 'user_managed')),
+    source TEXT NOT NULL CHECK (source IN ('plaid', 'fidelity', 'user_managed')),
     name TEXT,
     type TEXT,
     subtype TEXT,
     owner_tag TEXT,
     included INTEGER NOT NULL DEFAULT 1,
-    tax_treatment TEXT NOT NULL CHECK (tax_treatment IN ('taxable', 'tax-advantaged')),
+    tax_treatment TEXT CHECK (
+        tax_treatment IS NULL
+        OR tax_treatment IN ('taxable', 'tax-advantaged')
+    ),
     tax_treatment_override TEXT CHECK (
         tax_treatment_override IS NULL
         OR tax_treatment_override IN ('taxable', 'tax-advantaged')
@@ -42,7 +45,7 @@ CREATE TABLE holdings_snapshot (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_date TEXT NOT NULL,
     account_id TEXT NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
-    source TEXT NOT NULL CHECK (source IN ('plaid', 'user_managed')),
+    source TEXT NOT NULL CHECK (source IN ('plaid', 'fidelity', 'user_managed')),
     asset_name TEXT NOT NULL,
     display_name TEXT,
     plaid_security_id TEXT,

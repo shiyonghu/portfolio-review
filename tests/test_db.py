@@ -66,3 +66,40 @@ def test_foreign_keys_enabled(tmp_path: Path) -> None:
     row = conn.execute("PRAGMA foreign_keys").fetchone()
     assert row is not None
     assert row[0] == 1
+
+
+def test_accounts_allows_fidelity_with_null_tax_treatment(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "test.db")
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO accounts (account_id, item_id, source, name, type, subtype, owner_tag, included, tax_treatment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("fid-1", None, "fidelity", "Fidelity Account", "investment", None, "household", 0, None),
+    )
+    row = conn.execute("SELECT source, tax_treatment FROM accounts WHERE account_id = ?", ("fid-1",)).fetchone()
+    conn.close()
+    assert dict(row) == {"source": "fidelity", "tax_treatment": None}
+
+
+def test_holdings_snapshot_allows_fidelity_source(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "test.db")
+    init_db(conn)
+    conn.execute(
+        """
+        INSERT INTO accounts (account_id, item_id, source, name, type, owner_tag, included, tax_treatment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("fid-1", None, "fidelity", "Fidelity Account", "investment", "household", 1, "taxable"),
+    )
+    conn.execute(
+        """
+        INSERT INTO holdings_snapshot (snapshot_date, account_id, source, asset_name, display_name, value)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("2026-05-16", "fid-1", "fidelity", "SPY", "SPDR S&P 500 ETF", 100.0),
+    )
+    row = conn.execute("SELECT source FROM holdings_snapshot WHERE account_id = ?", ("fid-1",)).fetchone()
+    conn.close()
+    assert row["source"] == "fidelity"

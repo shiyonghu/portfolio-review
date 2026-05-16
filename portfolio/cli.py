@@ -1,5 +1,6 @@
 import webbrowser
 from datetime import date
+from pathlib import Path
 
 import typer
 import uvicorn
@@ -8,6 +9,8 @@ from portfolio.agent.ask import ask_portfolio_question
 from portfolio.config import Settings
 from portfolio.db.connection import get_connection, init_db
 from portfolio.db.queries import list_accounts, update_account
+from portfolio.fidelity.accounts import setup_fidelity_accounts
+from portfolio.fidelity.csv import FidelityCsvError
 from portfolio.managed.service import (
     add_managed_asset,
     append_valuation,
@@ -18,6 +21,7 @@ from portfolio.snapshot.runner import run_snapshot
 
 app = typer.Typer(help="Portfolio review tool")
 managed_app = typer.Typer(help="Manage user-managed assets")
+fidelity_app = typer.Typer(help="Manage Fidelity CSV imports")
 
 @app.callback()
 def main():
@@ -92,6 +96,36 @@ def accounts_configure(
         raise typer.BadParameter(str(exc)) from exc
     finally:
         conn.close()
+
+
+@fidelity_app.command("setup")
+def fidelity_setup(
+    csv_path: Path = typer.Option(
+        ...,
+        "--csv",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        help="Path to Fidelity positions CSV",
+    ),
+) -> None:
+    """Interactively configure Fidelity CSV accounts."""
+    settings = Settings.from_env()
+    conn = get_connection(settings.db_path)
+    try:
+        init_db(conn)
+
+        def ask(prompt: str, default: str | None = None) -> str:
+            return str(typer.prompt(prompt, default=default))
+
+        count = setup_fidelity_accounts(conn, csv_path, ask=ask)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    finally:
+        conn.close()
+
+    typer.echo(f"Configured {count} Fidelity account(s)")
 
 
 @managed_app.command("add")
@@ -183,6 +217,13 @@ def snapshot(
         "--snapshot-date",
         help="ISO date; defaults to today",
     ),
+    fidelity_csv: Path | None = typer.Option(
+        None,
+        "--fidelity-csv",
+        exists=True,
+        readable=True,
+        help="Optional Fidelity positions CSV to include in the snapshot",
+    ),
 ) -> None:
     """Run full snapshot pipeline and export CSV.
 
@@ -198,8 +239,15 @@ def snapshot(
     conn = get_connection(settings.db_path)
     try:
         init_db(conn)
-        result = run_snapshot(conn, settings, snapshot_date=snapshot_date)
+        result = run_snapshot(
+            conn,
+            settings,
+            snapshot_date=snapshot_date,
+            fidelity_csv=fidelity_csv,
+        )
         print_snapshot_summary(conn, result["snapshot_date"])
+    except FidelityCsvError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     finally:
         conn.close()
 
@@ -227,6 +275,7 @@ def ask(question: str = typer.Argument(..., help="Natural-language portfolio que
 
 
 app.add_typer(managed_app, name="managed")
+app.add_typer(fidelity_app, name="fidelity")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,9 @@ def classify_holding_with_source(
         if upper_name in overrides:
             return overrides[upper_name], "yaml"
 
+    if holding.get("is_cash_equivalent"):
+        return "Cash", "rule"
+
     plaid_type = _normalize(holding.get("plaid_type"))
     if plaid_type in _PLAID_TYPE_BUCKETS:
         return _PLAID_TYPE_BUCKETS[plaid_type], "rule"

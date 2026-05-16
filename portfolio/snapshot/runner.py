@@ -12,6 +12,10 @@ from portfolio.classify.prompt import prompt_confirmed_bucket
 from portfolio.classify.rules import classify_holding_with_source
 from portfolio.classify.yaml_store import load_classification_overrides
 from portfolio.config import Settings
+from portfolio.fidelity.csv import (
+    normalize_holdings as normalize_fidelity_holdings,
+    validate_snapshot_accounts,
+)
 from portfolio.keychain.tokens import load_access_token
 from portfolio.managed.service import materialize_managed_rows
 from portfolio.plaid.client import fetch_balances, fetch_holdings, make_plaid_client
@@ -95,6 +99,7 @@ def classify_snapshot(
             MAX(display_name) AS display_name,
             MAX(plaid_type) AS plaid_type,
             MAX(plaid_subtype) AS plaid_subtype,
+            MAX(is_cash_equivalent) AS is_cash_equivalent,
             MAX(source) AS source
         FROM holdings_snapshot
         WHERE snapshot_date = ?
@@ -184,10 +189,38 @@ def _archive_raw_payload(base_dir: Path, item_id: str, suffix: str, payload: dic
     )
 
 
-def run_snapshot(conn: sqlite3.Connection, settings: Settings, snapshot_date: str | None = None) -> dict[str, Any]:
+def run_snapshot(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    snapshot_date: str | None = None,
+    *,
+    fidelity_csv: Path | None = None,
+) -> dict[str, Any]:
     target_date = snapshot_date or date.today().isoformat()
     raw_dir = Path("snapshots/raw") / target_date
     csv_path = Path("snapshots/csv") / f"{target_date}.csv"
+
+    fidelity_rows: list[dict[str, Any]] = []
+    if fidelity_csv is not None:
+        configured_accounts = {
+            str(row["account_id"]): dict(row)
+            for row in conn.execute(
+                """
+                SELECT account_id, included, tax_treatment
+                FROM accounts
+                WHERE source = 'fidelity'
+                """
+            ).fetchall()
+        }
+        included_accounts = validate_snapshot_accounts(
+            fidelity_csv,
+            configured_accounts=configured_accounts,
+        )
+        fidelity_rows = normalize_fidelity_holdings(
+            fidelity_csv,
+            snapshot_date=target_date,
+            included_accounts=included_accounts,
+        )
 
     delete_snapshot_date(conn, target_date)
 
@@ -222,7 +255,7 @@ def run_snapshot(conn: sqlite3.Connection, settings: Settings, snapshot_date: st
         )
 
     managed_rows = materialize_managed_rows(conn, target_date)
-    insert_holdings_snapshot(conn, plaid_rows + managed_rows)
+    insert_holdings_snapshot(conn, plaid_rows + fidelity_rows + managed_rows)
     classify_snapshot(conn, target_date, settings)
     rebuild_snapshot_summary(conn, target_date)
     export_snapshot_csv(conn, target_date, csv_path)
@@ -231,5 +264,5 @@ def run_snapshot(conn: sqlite3.Connection, settings: Settings, snapshot_date: st
         "snapshot_date": target_date,
         "raw_dir": raw_dir,
         "csv_path": csv_path,
-        "holdings_count": len(plaid_rows) + len(managed_rows),
+        "holdings_count": len(plaid_rows) + len(fidelity_rows) + len(managed_rows),
     }
