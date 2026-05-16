@@ -81,6 +81,51 @@ def test_investment_holding_uses_ticker_as_asset_name() -> None:
     assert row["snapshot_date"] == "2026-05-13"
 
 
+def test_duplicate_investment_holdings_are_aggregated_by_snapshot_key() -> None:
+    holdings_response = {
+        "holdings": [
+            {
+                "account_id": "acc-invest",
+                "security_id": "sec-vti",
+                "institution_value": 1200.0,
+                "quantity": 5.0,
+                "institution_price": 240.0,
+                "institution_price_as_of": "2026-05-12",
+            },
+            {
+                "account_id": "acc-invest",
+                "security_id": "sec-vti",
+                "institution_value": 480.0,
+                "quantity": 2.0,
+                "institution_price": 240.0,
+                "institution_price_as_of": "2026-05-12",
+            },
+        ],
+        "securities": [
+            {
+                "security_id": "sec-vti",
+                "ticker_symbol": "VTI",
+                "name": "Vanguard Total Stock Market ETF",
+                "type": "etf",
+                "subtype": "large cap",
+                "is_cash_equivalent": False,
+            }
+        ],
+    }
+
+    rows = normalize_plaid_item(
+        accounts=ACCOUNTS_FIXTURE,
+        holdings_response=holdings_response,
+        balances_response={"accounts": []},
+        snapshot_date="2026-05-13",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["asset_name"] == "VTI"
+    assert rows[0]["value"] == 1680.0
+    assert rows[0]["quantity"] == 7.0
+
+
 def test_investment_holding_falls_back_to_security_id_when_ticker_missing() -> None:
     rows = normalize_plaid_item(
         accounts=ACCOUNTS_FIXTURE,

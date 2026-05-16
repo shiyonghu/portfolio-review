@@ -10,6 +10,20 @@ def _to_bool_int(value: Any) -> int | None:
     return 1 if bool(value) else 0
 
 
+def _sum_optional_numbers(left: Any, right: Any) -> float | None:
+    values = [value for value in (left, right) if value is not None]
+    if not values:
+        return None
+    return sum(float(value) for value in values)
+
+
+def _merge_duplicate_holding(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
+    existing["quantity"] = _sum_optional_numbers(existing.get("quantity"), incoming.get("quantity"))
+    existing["value"] = float(existing.get("value") or 0.0) + float(incoming.get("value") or 0.0)
+    if existing["quantity"]:
+        existing["unit_price"] = existing["value"] / existing["quantity"]
+
+
 def normalize_plaid_item(
     accounts: Sequence[Mapping[str, Any]],
     holdings_response: Mapping[str, Any],
@@ -26,6 +40,7 @@ def normalize_plaid_item(
     }
 
     rows: list[dict[str, Any]] = []
+    investment_row_by_snapshot_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     for holding in holdings_response.get("holdings", []):
         security_id = holding.get("security_id")
@@ -39,23 +54,28 @@ def normalize_plaid_item(
         ticker = str(security.get("ticker_symbol") or "").strip()
         asset_name = ticker or str(security_id)
 
-        rows.append(
-            {
-                "snapshot_date": snapshot_date,
-                "account_id": account_id,
-                "source": "plaid",
-                "asset_name": asset_name,
-                "display_name": security.get("name") or asset_name,
-                "plaid_security_id": str(security_id),
-                "plaid_type": security.get("type"),
-                "plaid_subtype": security.get("subtype"),
-                "is_cash_equivalent": _to_bool_int(security.get("is_cash_equivalent")),
-                "quantity": holding.get("quantity"),
-                "unit_price": holding.get("institution_price"),
-                "price_as_of": holding.get("institution_price_as_of"),
-                "value": holding.get("institution_value") or 0.0,
-            }
-        )
+        row = {
+            "snapshot_date": snapshot_date,
+            "account_id": account_id,
+            "source": "plaid",
+            "asset_name": asset_name,
+            "display_name": security.get("name") or asset_name,
+            "plaid_security_id": str(security_id),
+            "plaid_type": security.get("type"),
+            "plaid_subtype": security.get("subtype"),
+            "is_cash_equivalent": _to_bool_int(security.get("is_cash_equivalent")),
+            "quantity": holding.get("quantity"),
+            "unit_price": holding.get("institution_price"),
+            "price_as_of": holding.get("institution_price_as_of"),
+            "value": holding.get("institution_value") or 0.0,
+        }
+        snapshot_key = (snapshot_date, account_id, asset_name, "plaid")
+        existing_row = investment_row_by_snapshot_key.get(snapshot_key)
+        if existing_row is None:
+            investment_row_by_snapshot_key[snapshot_key] = row
+            rows.append(row)
+        else:
+            _merge_duplicate_holding(existing_row, row)
 
     for balance_account in balances_response.get("accounts", []):
         account_id = str(balance_account.get("account_id") or "")
