@@ -12,6 +12,7 @@ from portfolio.classify.buckets import ORDERED_BUCKETS, is_allowed_bucket
 from portfolio.config import Settings
 
 _OLLAMA_CHAT_TIMEOUT_SEC = 60.0
+_OLLAMA_NUM_PREDICT = 30
 
 
 def _extract_markdown_fence_body(text: str) -> str | None:
@@ -53,7 +54,6 @@ def parse_bucket_json_payload(content: str) -> tuple[str | None, str | None]:
 @dataclass(frozen=True)
 class BucketSuggestion:
     suggested_bucket: str | None
-    reason: str
     error: str | None = None
 
 
@@ -71,11 +71,11 @@ def _build_user_prompt(holding: dict[str, Any]) -> str:
     allowed = ", ".join(ORDERED_BUCKETS)
     payload = json.dumps(_holding_prompt_json(holding), sort_keys=True, default=str)
     return (
-        "Classify this holding into exactly one portfolio bucket.\n"
-        f"Allowed bucket names (use spelling exactly): {allowed}.\n"
-        "Respond with a single JSON object only, with keys \"bucket\" and \"reason\" "
-        "(reason is a short human explanation).\n"
-        f"Holding (JSON): {payload}"
+        "Classify the holding. Return only the answer.\n"
+        "Return exactly one compact JSON object and stop.\n"
+        f"Buckets: {allowed}\n"
+        f"Holding: {payload}\n"
+        'Output exactly: {"bucket":"<bucket>"}'
     )
 
 
@@ -92,6 +92,10 @@ def fetch_bucket_suggestion(
         "messages": [{"role": "user", "content": _build_user_prompt(holding)}],
         "stream": False,
         "format": "json",
+        "options": {
+            "temperature": 0,
+            "num_predict": _OLLAMA_NUM_PREDICT,
+        },
     }
 
     def _do_request(client: httpx.Client) -> BucketSuggestion:
@@ -101,7 +105,6 @@ def fetch_bucket_suggestion(
         except ConnectError as exc:
             return BucketSuggestion(
                 suggested_bucket=None,
-                reason="",
                 error=(
                     f"Cannot reach Ollama at {base_url}. "
                     "Start Ollama (e.g. open the Ollama app or run `ollama serve`) "
@@ -112,7 +115,6 @@ def fetch_bucket_suggestion(
             if exc.response.status_code == 404:
                 return BucketSuggestion(
                     suggested_bucket=None,
-                    reason="",
                     error=(
                         f"Ollama model {settings.ollama_model!r} was not found. "
                         f"Pull it with `ollama pull {settings.ollama_model}`."
@@ -120,13 +122,11 @@ def fetch_bucket_suggestion(
                 )
             return BucketSuggestion(
                 suggested_bucket=None,
-                reason="",
                 error=f"Ollama request failed: HTTP {exc.response.status_code}",
             )
         except TimeoutException:
             return BucketSuggestion(
                 suggested_bucket=None,
-                reason="",
                 error=(
                     f"Ollama did not respond within {_OLLAMA_CHAT_TIMEOUT_SEC:.0f}s "
                     f"at {base_url}. The model may be loading or slow to generate; "
@@ -138,8 +138,8 @@ def fetch_bucket_suggestion(
         content = str(message.get("content", "") or "")
         bucket, err = parse_bucket_json_payload(content)
         if err is not None:
-            return BucketSuggestion(suggested_bucket=None, reason="", error=err)
-        return BucketSuggestion(suggested_bucket=bucket, reason="", error=None)
+            return BucketSuggestion(suggested_bucket=None, error=err)
+        return BucketSuggestion(suggested_bucket=bucket, error=None)
 
     if http_client is not None:
         return _do_request(http_client)
