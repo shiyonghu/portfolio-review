@@ -24,25 +24,14 @@ def setup_fidelity_accounts(
         account_id = account["account_id"]
         existing = existing_by_id.get(account_id)
 
-        include_default = _include_default(existing)
-        included = _normalize_yes_no(
+        choice_default = _choice_default(existing)
+        included, tax_treatment = _normalize_account_choice(
             _answer_or_default(
-                ask(f"Include Fidelity account {account['name']} ({account_id})?", include_default),
-                include_default,
+                ask(_choice_prompt(account), choice_default),
+                choice_default,
             )
         )
-
-        tax_treatment = None
-        tax_treatment_override = None
-        if included:
-            tax_default = _tax_default(existing)
-            tax_treatment = _normalize_tax_treatment(
-                _answer_or_default(
-                    ask(f"Tax treatment for Fidelity account {account['name']} ({account_id})?", tax_default),
-                    tax_default,
-                )
-            )
-            tax_treatment_override = tax_treatment
+        tax_treatment_override = tax_treatment if included else None
 
         conn.execute(
             """
@@ -111,16 +100,31 @@ def _raise_on_source_collisions(
             )
 
 
-def _include_default(existing: sqlite3.Row | None) -> str:
-    if existing is None:
-        return "y"
-    return "y" if existing["included"] else "n"
-
-
 def _tax_default(existing: sqlite3.Row | None) -> str | None:
     if existing is None:
         return "taxable"
     return existing["tax_treatment_override"] or existing["tax_treatment"]
+
+
+def _choice_prompt(account: dict[str, str]) -> str:
+    return (
+        f"Fidelity account {account['name']} ({account['account_id']})\n"
+        "  1) Include as taxable\n"
+        "  2) Include as tax-advantaged\n"
+        "  3) Exclude from snapshots\n"
+        "Choose"
+    )
+
+
+def _choice_default(existing: sqlite3.Row | None) -> str:
+    if existing is None:
+        return "1"
+    if not existing["included"]:
+        return "3"
+    tax_treatment = _tax_default(existing)
+    if tax_treatment == "tax-advantaged":
+        return "2"
+    return "1"
 
 
 def _answer_or_default(value: str, default: str | None) -> str:
@@ -131,17 +135,14 @@ def _answer_or_default(value: str, default: str | None) -> str:
     return value
 
 
-def _normalize_yes_no(value: str) -> bool:
+def _normalize_account_choice(value: str) -> tuple[bool, str | None]:
     normalized = value.strip().lower()
-    if normalized in {"y", "yes"}:
-        return True
-    if normalized in {"n", "no"}:
-        return False
-    raise ValueError("answer must be 'y'/'yes' or 'n'/'no'")
+    if normalized in {"1", "t", "taxable"}:
+        return True, "taxable"
+    if normalized in {"2", "a", "advantaged", "tax-advantaged"}:
+        return True, "tax-advantaged"
+    if normalized in {"3", "n", "no", "exclude", "excluded"}:
+        return False, None
+    raise ValueError("choose 1, 2, 3, t, a, or n")
 
 
-def _normalize_tax_treatment(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"taxable", "tax-advantaged"}:
-        return normalized
-    raise ValueError("tax treatment must be 'taxable' or 'tax-advantaged'")

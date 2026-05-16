@@ -18,53 +18,134 @@ def _write_csv(tmp_path: Path, content: str = CSV_TEXT) -> Path:
     return path
 
 
-def test_setup_prompts_tax_only_for_included_accounts(tmp_path: Path) -> None:
-    conn = get_connection(tmp_path / "portfolio.db")
-    init_db(conn)
-    answers = iter(["y", "taxable", "n"])
-    prompts: list[str] = []
+EXPECTED_FIRST_ACCOUNT_PROMPT = """Fidelity account NETFLIX401(K) (12366)
+  1) Include as taxable
+  2) Include as tax-advantaged
+  3) Exclude from snapshots
+Choose"""
 
-    setup_fidelity_accounts(
-        conn,
-        _write_csv(tmp_path),
-        ask=lambda prompt, default=None: prompts.append(prompt) or next(answers),
-    )
 
-    rows = conn.execute(
+SINGLE_ACCOUNT_CSV_TEXT = """Account Number,Account Name,Symbol,Description,Quantity,Last Price,Last Price Change,Current Value,Today's Gain/Loss Dollar,Today's Gain/Loss Percent,Total Gain/Loss Dollar,Total Gain/Loss Percent,Percent Of Account,Cost Basis Total,Average Cost Basis,Type
+12366,NETFLIX401(K),NFLX,NETFLIX INC,1,$100.00,$0.00,$100.00,$0.00,0.00%,$0.00,0.00%,100.00%,$100.00,$100.00,Cash
+"""
+
+
+def _row_for_account(conn, account_id: str = "12366") -> dict:
+    row = conn.execute(
         """
         SELECT account_id, source, included, tax_treatment, tax_treatment_override, owner_tag, type, subtype
         FROM accounts
-        ORDER BY account_id
-        """
-    ).fetchall()
+        WHERE account_id = ?
+        """,
+        (account_id,),
+    ).fetchone()
+    return dict(row)
+
+
+def _expected_account_row(
+    *,
+    included: int,
+    tax_treatment: str | None,
+    account_id: str = "12366",
+) -> dict:
+    return {
+        "account_id": account_id,
+        "source": "fidelity",
+        "included": included,
+        "tax_treatment": tax_treatment,
+        "tax_treatment_override": tax_treatment,
+        "owner_tag": "household",
+        "type": "investment",
+        "subtype": None,
+    }
+
+
+def test_setup_choice_1_includes_account_as_taxable_with_menu_default(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+    prompts: list[tuple[str, str | None]] = []
+
+    setup_fidelity_accounts(
+        conn,
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: prompts.append((prompt, default)) or "1",
+    )
+
+    row = _row_for_account(conn)
     conn.close()
 
-    assert [dict(row) for row in rows] == [
-        {
-            "account_id": "111",
-            "source": "fidelity",
-            "included": 1,
-            "tax_treatment": "taxable",
-            "tax_treatment_override": "taxable",
-            "owner_tag": "household",
-            "type": "investment",
-            "subtype": None,
-        },
-        {
-            "account_id": "222",
-            "source": "fidelity",
-            "included": 0,
-            "tax_treatment": None,
-            "tax_treatment_override": None,
-            "owner_tag": "household",
-            "type": "investment",
-            "subtype": None,
-        },
-    ]
-    assert len(prompts) == 3
+    assert row == _expected_account_row(included=1, tax_treatment="taxable")
+    assert prompts == [(EXPECTED_FIRST_ACCOUNT_PROMPT, "1")]
 
 
-def test_setup_rerun_uses_existing_values_as_defaults(tmp_path: Path) -> None:
+def test_setup_choice_2_includes_account_as_tax_advantaged(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+
+    setup_fidelity_accounts(
+        conn,
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: "2",
+    )
+
+    row = _row_for_account(conn)
+    conn.close()
+
+    assert row == _expected_account_row(included=1, tax_treatment="tax-advantaged")
+
+
+def test_setup_choice_3_excludes_account_and_stores_null_tax_fields(tmp_path: Path) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+
+    setup_fidelity_accounts(
+        conn,
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: "3",
+    )
+
+    row = _row_for_account(conn)
+    conn.close()
+
+    assert row == _expected_account_row(included=0, tax_treatment=None)
+
+
+@pytest.mark.parametrize(
+    ("answer", "included", "tax_treatment"),
+    [
+        ("t", 1, "taxable"),
+        ("taxable", 1, "taxable"),
+        ("a", 1, "tax-advantaged"),
+        ("advantaged", 1, "tax-advantaged"),
+        ("tax-advantaged", 1, "tax-advantaged"),
+        ("n", 0, None),
+        ("no", 0, None),
+        ("exclude", 0, None),
+        ("excluded", 0, None),
+    ],
+)
+def test_setup_accepts_menu_aliases(
+    tmp_path: Path,
+    answer: str,
+    included: int,
+    tax_treatment: str | None,
+) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+
+    setup_fidelity_accounts(
+        conn,
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: answer,
+    )
+
+    row = _row_for_account(conn)
+    conn.close()
+
+    assert row == _expected_account_row(included=included, tax_treatment=tax_treatment)
+
+
+def test_setup_empty_input_uses_existing_tax_advantaged_default(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "portfolio.db")
     init_db(conn)
     conn.execute(
@@ -72,23 +153,25 @@ def test_setup_rerun_uses_existing_values_as_defaults(tmp_path: Path) -> None:
         INSERT INTO accounts (account_id, item_id, source, name, type, owner_tag, included, tax_treatment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("111", None, "fidelity", "Taxable Brokerage", "investment", "household", 1, "taxable"),
+        ("12366", None, "fidelity", "NETFLIX401(K)", "investment", "household", 1, "tax-advantaged"),
     )
     conn.commit()
     defaults: list[str | None] = []
-    answers = iter(["y", "taxable", "n"])
 
     setup_fidelity_accounts(
         conn,
-        _write_csv(tmp_path),
-        ask=lambda prompt, default=None: defaults.append(default) or next(answers),
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: defaults.append(default) or "",
     )
 
+    row = _row_for_account(conn)
     conn.close()
-    assert defaults[:2] == ["y", "taxable"]
+
+    assert row == _expected_account_row(included=1, tax_treatment="tax-advantaged")
+    assert defaults == ["2"]
 
 
-def test_setup_blank_answers_use_defaults_for_existing_account(tmp_path: Path) -> None:
+def test_setup_empty_input_uses_existing_excluded_default(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "portfolio.db")
     init_db(conn)
     conn.execute(
@@ -96,44 +179,36 @@ def test_setup_blank_answers_use_defaults_for_existing_account(tmp_path: Path) -
         INSERT INTO accounts (account_id, item_id, source, name, type, owner_tag, included, tax_treatment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("111", None, "fidelity", "Taxable Brokerage", "investment", "household", 1, "taxable"),
+        ("12366", None, "fidelity", "NETFLIX401(K)", "investment", "household", 0, None),
     )
     conn.commit()
-    answers = iter(["", "   ", "n"])
+    defaults: list[str | None] = []
 
     setup_fidelity_accounts(
         conn,
-        _write_csv(tmp_path),
-        ask=lambda prompt, default=None: next(answers),
+        _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+        ask=lambda prompt, default=None: defaults.append(default) or "",
     )
 
-    row = conn.execute(
-        "SELECT included, tax_treatment FROM accounts WHERE account_id = ?",
-        ("111",),
-    ).fetchone()
+    row = _row_for_account(conn)
     conn.close()
 
-    assert dict(row) == {"included": 1, "tax_treatment": "taxable"}
+    assert row == _expected_account_row(included=0, tax_treatment=None)
+    assert defaults == ["3"]
 
 
-def test_setup_blank_tax_answer_uses_taxable_default_for_new_account(tmp_path: Path) -> None:
+def test_setup_invalid_menu_choice_raises_value_error(tmp_path: Path) -> None:
     conn = get_connection(tmp_path / "portfolio.db")
     init_db(conn)
-    answers = iter(["y", "", "n"])
 
-    setup_fidelity_accounts(
-        conn,
-        _write_csv(tmp_path),
-        ask=lambda prompt, default=None: next(answers),
-    )
+    with pytest.raises(ValueError, match="choose 1, 2, 3, t, a, or n"):
+        setup_fidelity_accounts(
+            conn,
+            _write_csv(tmp_path, SINGLE_ACCOUNT_CSV_TEXT),
+            ask=lambda prompt, default=None: "bogus",
+        )
 
-    row = conn.execute(
-        "SELECT included, tax_treatment FROM accounts WHERE account_id = ?",
-        ("111",),
-    ).fetchone()
     conn.close()
-
-    assert dict(row) == {"included": 1, "tax_treatment": "taxable"}
 
 
 def test_setup_rejects_account_id_collision_with_non_fidelity_source(tmp_path: Path) -> None:
