@@ -21,34 +21,31 @@ def test_ordered_buckets_matches_rules_vocabulary() -> None:
 
 
 def test_parse_plain_json() -> None:
-    bucket, reason, err = parse_bucket_json_payload('{"bucket":"Equity","reason":"US stock ETF"}')
+    bucket, err = parse_bucket_json_payload('{"bucket":"Equity"}')
     assert err is None
     assert bucket == "Equity"
-    assert reason is not None
-    assert "ETF" in reason
 
 
 def test_parse_json_in_markdown_fence() -> None:
     raw = """Here is the result:
 ```json
-{"bucket": "Bond", "reason": "fixed income"}
+{"bucket": "Bond"}
 ```
 
 """
-    bucket, reason, err = parse_bucket_json_payload(raw)
+    bucket, err = parse_bucket_json_payload(raw)
     assert err is None
     assert bucket == "Bond"
-    assert reason is not None
 
 
 def test_invalid_bucket_rejected() -> None:
-    bucket, reason, err = parse_bucket_json_payload('{"bucket":"Banana","reason":"x"}')
+    bucket, err = parse_bucket_json_payload('{"bucket":"Banana"}')
     assert bucket is None
     assert err is not None
 
 
 def test_malformed_json() -> None:
-    bucket, reason, err = parse_bucket_json_payload("not json")
+    bucket, err = parse_bucket_json_payload("not json")
     assert bucket is None
     assert err is not None
 

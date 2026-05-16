@@ -26,30 +26,28 @@ def _extract_markdown_fence_body(text: str) -> str | None:
     return after[:close]
 
 
-def parse_bucket_json_payload(content: str) -> tuple[str | None, str | None, str | None]:
-    """Parse model output into `(bucket, reason, error)`. `error` is set when parsing/validation fails."""
+def parse_bucket_json_payload(content: str) -> tuple[str | None, str | None]:
+    """Parse model output into `(bucket, error)`. `error` is set when parsing/validation fails."""
     text = (content or "").strip()
     fenced = _extract_markdown_fence_body(text)
     if fenced is not None:
         text = fenced.strip()
     brace = text.find("{")
     if brace < 0:
-        return None, None, "No JSON object found"
+        return None, "No JSON object found"
     try:
         obj, _end = json.JSONDecoder().raw_decode(text, brace)
     except json.JSONDecodeError as exc:
-        return None, None, f"Invalid JSON: {exc}"
+        return None, f"Invalid JSON: {exc}"
     if not isinstance(obj, dict):
-        return None, None, "JSON root must be an object"
+        return None, "JSON root must be an object"
     bucket_raw = obj.get("bucket")
-    reason_raw = obj.get("reason", "")
     if not isinstance(bucket_raw, str):
-        return None, None, "bucket must be a string"
+        return None, "bucket must be a string"
     bucket = bucket_raw.strip()
-    reason = str(reason_raw).strip() if reason_raw is not None else ""
     if not is_allowed_bucket(bucket):
-        return None, None, f"Unknown bucket: {bucket_raw!r}"
-    return bucket, reason or None, None
+        return None, f"Unknown bucket: {bucket_raw!r}"
+    return bucket, None
 
 
 @dataclass(frozen=True)
@@ -138,10 +136,10 @@ def fetch_bucket_suggestion(
         payload = response.json()
         message = payload.get("message", {})
         content = str(message.get("content", "") or "")
-        bucket, reason, err = parse_bucket_json_payload(content)
+        bucket, err = parse_bucket_json_payload(content)
         if err is not None:
-            return BucketSuggestion(suggested_bucket=None, reason=reason or "", error=err)
-        return BucketSuggestion(suggested_bucket=bucket, reason=reason or "", error=None)
+            return BucketSuggestion(suggested_bucket=None, reason="", error=err)
+        return BucketSuggestion(suggested_bucket=bucket, reason="", error=None)
 
     if http_client is not None:
         return _do_request(http_client)
