@@ -30,7 +30,6 @@ def test_classify_snapshot_interactive_y_persists_llm_confirmed(
         "portfolio.snapshot.runner.fetch_bucket_suggestion",
         lambda holding, s, http_client=None: BucketSuggestion(
             suggested_bucket="Equity",
-            reason="test",
             error=None,
         ),
     )

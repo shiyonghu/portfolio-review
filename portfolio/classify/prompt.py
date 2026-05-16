@@ -21,8 +21,6 @@ def _print_card(
         write(f"Ollama / parse: {suggestion.error}\n")
     elif suggestion.suggested_bucket:
         write(f"Suggested bucket: {suggestion.suggested_bucket}\n")
-        if suggestion.reason:
-            write(f"Reason: {suggestion.reason}\n")
     else:
         write("No suggestion available.\n")
     write("[y] accept  [n] skip  [m] manual pick  [q] quit classifier\n")
