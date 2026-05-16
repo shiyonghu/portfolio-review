@@ -67,6 +67,22 @@ BALANCES_RESPONSE_FIXTURE = {
 }
 
 
+STOCK_PLAN_ACCOUNTS_FIXTURE = [
+    {
+        "account_id": "acc-vested-stock-plan",
+        "type": "investment",
+        "subtype": "stock plan",
+        "name": "Example Stock Plan",
+    },
+    {
+        "account_id": "acc-zero-value-stock-plan",
+        "type": "investment",
+        "subtype": "stock plan",
+        "name": "Stock Plan Example A",
+    },
+]
+
+
 def test_investment_holding_uses_ticker_as_asset_name() -> None:
     rows = normalize_plaid_item(
         accounts=ACCOUNTS_FIXTURE,
@@ -124,6 +140,164 @@ def test_duplicate_investment_holdings_are_aggregated_by_snapshot_key() -> None:
     assert rows[0]["asset_name"] == "VTI"
     assert rows[0]["value"] == 1680.0
     assert rows[0]["quantity"] == 7.0
+
+
+def test_stock_plan_uses_vested_value_and_excludes_unvested_lots() -> None:
+    holdings_response = {
+        "holdings": [
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-cash",
+                "institution_value": 100.0,
+                "quantity": 100.0,
+                "institution_price": 1.0,
+                "institution_price_as_of": "2026-05-16",
+                "vested_quantity": 0.0,
+                "vested_value": 100.0,
+            },
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-equity",
+                "institution_value": 1000.0,
+                "quantity": 10.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": 0.0,
+                "vested_value": 0.0,
+            },
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-equity",
+                "institution_value": 2000.0,
+                "quantity": 20.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": 0.0,
+                "vested_value": 0.0,
+            },
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-equity",
+                "institution_value": 3000.0,
+                "quantity": 30.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": 0.0,
+                "vested_value": 0.0,
+            },
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-equity",
+                "institution_value": 4000.0,
+                "quantity": 40.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": 0.0,
+                "vested_value": 0.0,
+            },
+            {
+                "account_id": "acc-vested-stock-plan",
+                "security_id": "sec-equity",
+                "institution_value": 5000.0,
+                "quantity": 50.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": 50.0,
+                "vested_value": 5000.0,
+            },
+        ],
+        "securities": [
+            {
+                "security_id": "sec-equity",
+                "ticker_symbol": "EXEQ",
+                "name": "Example Equity",
+                "type": "equity",
+                "subtype": "common stock",
+                "is_cash_equivalent": False,
+            },
+            {
+                "security_id": "sec-cash",
+                "ticker_symbol": "CUR:USD",
+                "name": "U S Dollar",
+                "type": "cash",
+                "subtype": None,
+                "is_cash_equivalent": True,
+            },
+        ],
+    }
+    balances_response = {
+        "accounts": [
+            {
+                "account_id": "acc-vested-stock-plan",
+                "type": "investment",
+                "subtype": "stock plan",
+                "balances": {"current": 5100.0},
+            }
+        ]
+    }
+
+    rows = normalize_plaid_item(
+        accounts=[STOCK_PLAN_ACCOUNTS_FIXTURE[0]],
+        holdings_response=holdings_response,
+        balances_response=balances_response,
+        snapshot_date="2026-05-16",
+    )
+
+    equity_row = next(r for r in rows if r["asset_name"] == "EXEQ")
+    cash_row = next(r for r in rows if r["asset_name"] == "CUR:USD")
+    assert equity_row["value"] == 5000.0
+    assert equity_row["quantity"] == 50.0
+    assert cash_row["value"] == 100.0
+    assert round(sum(r["value"] for r in rows), 2) == 5100.0
+
+
+def test_stock_plan_single_zero_value_security_falls_back_to_current_balance() -> None:
+    holdings_response = {
+        "holdings": [
+            {
+                "account_id": "acc-zero-value-stock-plan",
+                "security_id": "sec-zero-value-equity",
+                "institution_value": 0.0,
+                "quantity": 0.0,
+                "institution_price": 100.0,
+                "institution_price_as_of": "2026-05-15",
+                "vested_quantity": None,
+                "vested_value": None,
+            }
+        ],
+        "securities": [
+            {
+                "security_id": "sec-zero-value-equity",
+                "ticker_symbol": "EXZERO",
+                "name": "Example Zero Value Equity",
+                "type": "equity",
+                "subtype": "common stock",
+                "is_cash_equivalent": False,
+            }
+        ],
+    }
+    balances_response = {
+        "accounts": [
+            {
+                "account_id": "acc-zero-value-stock-plan",
+                "type": "investment",
+                "subtype": "stock plan",
+                "balances": {"current": 7500.0},
+            }
+        ]
+    }
+
+    rows = normalize_plaid_item(
+        accounts=[STOCK_PLAN_ACCOUNTS_FIXTURE[1]],
+        holdings_response=holdings_response,
+        balances_response=balances_response,
+        snapshot_date="2026-05-16",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["asset_name"] == "EXZERO"
+    assert rows[0]["value"] == 7500.0
+    assert rows[0]["quantity"] == 0.0
 
 
 def test_investment_holding_falls_back_to_security_id_when_ticker_missing() -> None:
