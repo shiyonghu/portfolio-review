@@ -28,6 +28,17 @@ def test_yaml_override_wins() -> None:
     assert classify_holding(holding, overrides) == "Equity"
 
 
+def test_yaml_override_classifies_etf() -> None:
+    holding = {"asset_name": "VTI", "plaid_type": "etf"}
+    overrides = {"VTI": "Equity"}
+    assert classify_holding_with_source(holding, overrides) == ("Equity", "yaml")
+
+
+def test_unknown_etf_is_unclassified_by_rules() -> None:
+    holding = {"asset_name": "NEWETF", "plaid_type": "etf"}
+    assert classify_holding_with_source(holding, {}) == (None, None)
+
+
 def test_real_estate_asset_kind_default() -> None:
     assert classify_holding({"asset_name": "Home", "asset_kind": "real_estate"}) == "RealEstate"
 

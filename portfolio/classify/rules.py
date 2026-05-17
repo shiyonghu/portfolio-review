@@ -13,7 +13,6 @@ _PLAID_TYPE_BUCKETS: dict[str, Bucket] = {
     "bond": "Bond",
     "equity": "Equity",
     "stock": "Equity",
-    "etf": "Equity",
     "mutual fund": "Equity",
     "gold": "Gold",
     "commodity": "Commodity",
