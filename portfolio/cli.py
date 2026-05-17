@@ -17,7 +17,7 @@ from portfolio.managed.service import (
     list_latest,
 )
 from portfolio.snapshot.console import print_snapshot_summary
-from portfolio.snapshot.runner import run_snapshot
+from portfolio.snapshot.runner import SnapshotPlaidError, run_snapshot
 
 app = typer.Typer(help="Portfolio review tool")
 managed_app = typer.Typer(help="Manage user-managed assets")
@@ -247,6 +247,8 @@ def snapshot(
         )
         print_snapshot_summary(conn, result["snapshot_date"])
     except FidelityCsvError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except SnapshotPlaidError as exc:
         raise typer.BadParameter(str(exc)) from exc
     finally:
         conn.close()

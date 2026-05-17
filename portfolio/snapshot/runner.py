@@ -40,6 +40,41 @@ _HOLDINGS_COLUMNS = (
     "bucket",
 )
 
+class SnapshotPlaidError(RuntimeError):
+    """Plaid failed while snapshot context was available locally."""
+
+
+def _format_plaid_fetch_error(
+    operation: str,
+    item_id: str,
+    accounts: list[dict[str, Any]],
+    exc: Exception,
+) -> str:
+    account_details = ", ".join(
+        (
+            f"{account['account_id']}"
+            f" (included={account['included']}, type={account['type']}, subtype={account['subtype']})"
+        )
+        for account in accounts
+    )
+    if not account_details:
+        account_details = "none configured"
+
+    parts = [
+        f"Plaid {operation} failed for item_id={item_id}",
+        f"accounts=[{account_details}]",
+    ]
+    status = getattr(exc, "status", None)
+    reason = getattr(exc, "reason", None)
+    body = getattr(exc, "body", None)
+    if status is not None:
+        parts.append(f"status={status}")
+    if reason:
+        parts.append(f"reason={reason}")
+    if body:
+        parts.append(f"body={body}")
+    return "; ".join(parts)
+
 
 def delete_snapshot_date(conn: sqlite3.Connection, snapshot_date: str) -> None:
     conn.execute("DELETE FROM holdings_snapshot WHERE snapshot_date = ?", (snapshot_date,))
@@ -232,8 +267,30 @@ def run_snapshot(
         token = load_access_token(item_id)
         if not token:
             continue
-        holdings = fetch_holdings(client, token)
-        balances = fetch_balances(client, token)
+        accounts_for_item = [
+            dict(account)
+            for account in conn.execute(
+                """
+                SELECT account_id, included, type, subtype
+                FROM accounts
+                WHERE item_id = ?
+                ORDER BY account_id
+                """,
+                (item_id,),
+            ).fetchall()
+        ]
+        try:
+            holdings = fetch_holdings(client, token)
+        except Exception as exc:
+            raise SnapshotPlaidError(
+                _format_plaid_fetch_error("holdings fetch", item_id, accounts_for_item, exc)
+            ) from exc
+        try:
+            balances = fetch_balances(client, token)
+        except Exception as exc:
+            raise SnapshotPlaidError(
+                _format_plaid_fetch_error("balances fetch", item_id, accounts_for_item, exc)
+            ) from exc
         _archive_raw_payload(raw_dir, item_id, "holdings", holdings)
         _archive_raw_payload(raw_dir, item_id, "balances", balances)
 
