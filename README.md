@@ -282,7 +282,7 @@ List linked accounts and current preferences:
 portfolio accounts-list
 ```
 
-Exclude an account, set an owner label, or override tax treatment:
+The setup already let you decide what account to include and it automatically categorized tax treatment. If later you want to exclude an account, set an owner label, or override tax treatment:
 
 ```bash
 portfolio accounts-configure --account-id <id> --no-included
@@ -292,9 +292,9 @@ portfolio accounts-configure --account-id <id> --tax-treatment tax-advantaged
 
 Tax treatment is either `taxable` or `tax-advantaged` (401k, IRA, Roth, HSA, 529, etc.). Subtype-based defaults apply unless you override.
 
-### 3. Configure Fidelity CSV accounts (optional)
+### 3. Configure Fidelity accounts (as needed)
 
-If you use Fidelity CSV imports, configure the accounts once before snapshot runs:
+Fidelity doesn't support Plaid any more. You can download the csv from Fidelity website for all your accounts and use it. Configure the accounts once before snapshot runs:
 
 ```bash
 portfolio fidelity setup --csv snapshots/Portfolio_Positions_May-15-2026.csv
@@ -353,43 +353,11 @@ Re-running on the **same date** replaces that day's data; it does not append dup
 Requires [Ollama setup](#ollama-setup-for-portfolio-ask) and at least one snapshot in the database:
 
 ```bash
-portfolio ask "What is my equity allocation in tax-advantaged accounts?"
 portfolio ask "Plot a pie chart of asset buckets for the latest snapshot"
+portfolio ask "look at the latest snapshot, what's the top 5 largest holdings, their value and percentage among the portfolio?"
 ```
 
 The agent uses read-only SQL against `portfolio.db` and can write chart PNGs to `outputs/`.
-
-### 7. Tune classification (as needed)
-
-Edit `classification.yaml` for tickers or names that rules do not resolve:
-
-```yaml
-VTI: Equity
-BND: Bond
-GLD: Gold
-```
-
-Buckets: `Cash`, `Bond`, `Equity`, `Gold`, `Commodity`, `Crypto`, `RealEstate`. After editing YAML, run `portfolio snapshot` again (or delete rows from `classifications` for specific assets — see below).
-
-## Fidelity CSV accounts
-
-Fidelity accounts that are not available through Plaid can be imported from a downloaded positions CSV.
-
-First configure accounts from the CSV:
-
-```bash
-portfolio fidelity setup --csv snapshots/Portfolio_Positions_May-15-2026.csv
-```
-
-For each account, the setup flow asks whether to include it. Included accounts also require a tax treatment: `taxable` or `tax-advantaged`. Owner tags default to `household`.
-
-Then include the CSV during a snapshot:
-
-```bash
-portfolio snapshot --fidelity-csv snapshots/Portfolio_Positions_May-15-2026.csv
-```
-
-Rows with an empty `Symbol` are ignored, and the Fidelity `Type` column is ignored because it describes margin eligibility rather than asset type.
 
 ## CLI reference
 
@@ -411,14 +379,14 @@ Rows with an empty `Symbol` are ignored, and the Fidelity `Type` column is ignor
 ## Data model (quick reference)
 
 
-| Table                   | Role                                                                        |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `items`                 | Plaid institutions / link health                                            |
-| `accounts`              | Plaid, Fidelity CSV, and synthetic user-managed accounts                    |
-| `user_managed_holdings` | Valuation history for manual assets                                         |
-| `holdings_snapshot`     | Point-in-time holdings from Plaid, Fidelity CSV, and user-managed assets     |
-| `classifications`       | Cached asset_name → bucket                                                  |
-| `snapshot_summary`      | Materialized rollups by bucket, tax treatment, owner                        |
+| Table                   | Role                                                                     |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `items`                 | Plaid institutions / link health                                         |
+| `accounts`              | Plaid, Fidelity CSV, and synthetic user-managed accounts                 |
+| `user_managed_holdings` | Valuation history for manual assets                                      |
+| `holdings_snapshot`     | Point-in-time holdings from Plaid, Fidelity CSV, and user-managed assets |
+| `classifications`       | Cached asset_name → bucket                                               |
+| `snapshot_summary`      | Materialized rollups by bucket, tax treatment, owner                     |
 
 
 Net worth for a date: `SUM(total_value) FROM snapshot_summary WHERE snapshot_date = ?`.
