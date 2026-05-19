@@ -317,7 +317,7 @@ portfolio managed update "Primary home" --value 875000 --effective-date 2026-05-
 portfolio managed list
 ```
 
-`asset_kind` is one of `real_estate`, `private_equity`, or `other`. Snapshots carry forward the latest valuation on or before the snapshot date.
+`asset_kind` is free-form. Known values such as `real_estate`, `private_equity`, `equity`, `cash`, `bond`, `gold`, `commodity`, and `crypto` get default bucket classifications. Snapshots carry forward the latest valuation on or before the snapshot date.
 
 ### 5. Run a snapshot
 

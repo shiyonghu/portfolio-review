@@ -83,3 +83,21 @@ def test_list_latest_returns_active_assets(tmp_path) -> None:
     assert len(latest) == 1
     assert latest[0]["asset_name"] == "Rental Condo"
     assert latest[0]["value"] == 530_000
+
+
+def test_add_managed_asset_accepts_equity_asset_kind(tmp_path) -> None:
+    conn = get_connection(tmp_path / "portfolio.db")
+    init_db(conn)
+
+    add_managed_asset(
+        conn,
+        asset_name="Angel Investment",
+        asset_kind="equity",
+        value=75_000,
+        effective_date="2026-05-16",
+    )
+
+    latest = list_latest(conn)
+    assert len(latest) == 1
+    assert latest[0]["asset_name"] == "Angel Investment"
+    assert latest[0]["asset_kind"] == "equity"

@@ -22,6 +22,12 @@ _PLAID_TYPE_BUCKETS: dict[str, Bucket] = {
 }
 
 _ASSET_KIND_DEFAULTS: dict[str, Bucket] = {
+    "bond": "Bond",
+    "cash": "Cash",
+    "commodity": "Commodity",
+    "crypto": "Crypto",
+    "equity": "Equity",
+    "gold": "Gold",
     "real_estate": "RealEstate",
     "private_equity": "Equity",
 }

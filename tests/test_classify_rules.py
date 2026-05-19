@@ -1,3 +1,5 @@
+import pytest
+
 from portfolio.classify.rules import classify_holding, classify_holding_with_source
 
 
@@ -47,6 +49,29 @@ def test_private_equity_asset_kind_default() -> None:
     assert (
         classify_holding({"asset_name": "Fund X", "asset_kind": "private_equity"})
         == "Equity"
+    )
+
+
+@pytest.mark.parametrize(
+    ("asset_kind", "expected_bucket"),
+    [
+        ("equity", "Equity"),
+        ("cash", "Cash"),
+        ("bond", "Bond"),
+        ("gold", "Gold"),
+        ("commodity", "Commodity"),
+        ("crypto", "Crypto"),
+    ],
+)
+def test_common_asset_kind_defaults(
+    asset_kind: str,
+    expected_bucket: str,
+) -> None:
+    assert (
+        classify_holding(
+            {"asset_name": f"Managed {asset_kind}", "asset_kind": asset_kind}
+        )
+        == expected_bucket
     )
 
 

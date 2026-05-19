@@ -29,9 +29,7 @@ CREATE TABLE accounts (
 CREATE TABLE user_managed_holdings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_name TEXT NOT NULL,
-    asset_kind TEXT NOT NULL CHECK (
-        asset_kind IN ('real_estate', 'private_equity', 'other')
-    ),
+    asset_kind TEXT NOT NULL,
     account_id TEXT NOT NULL REFERENCES accounts (account_id) ON DELETE CASCADE,
     value REAL NOT NULL,
     effective_date TEXT NOT NULL,
