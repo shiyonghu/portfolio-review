@@ -1,3 +1,5 @@
+import pytest
+
 from portfolio.snapshot.normalize import normalize_plaid_item
 
 
@@ -298,6 +300,113 @@ def test_stock_plan_single_zero_value_security_falls_back_to_current_balance() -
     assert rows[0]["asset_name"] == "EXZERO"
     assert rows[0]["value"] == 7500.0
     assert rows[0]["quantity"] == 0.0
+
+
+def test_skips_self_directed_brokerage_reference_holding() -> None:
+    accounts = [
+        {
+            "account_id": "acc-401k",
+            "type": "investment",
+            "subtype": "401k",
+            "name": "401(k)",
+        },
+    ]
+    holdings_response = {
+        "holdings": [
+            {
+                "account_id": "acc-401k",
+                "security_id": "sec-fund",
+                "institution_value": 551.83,
+                "quantity": 4.804,
+                "institution_price": 114.87,
+            },
+            {
+                "account_id": "acc-401k",
+                "security_id": "sec-self-directed",
+                "institution_value": 1_033_445.97,
+                "quantity": 1_033_445.97,
+                "institution_price": 1.0,
+            },
+        ],
+        "securities": [
+            {
+                "security_id": "sec-fund",
+                "name": "Instl 500 Index Trust",
+                "type": "mutual fund",
+                "is_cash_equivalent": False,
+            },
+            {
+                "security_id": "sec-self-directed",
+                "name": "Self-Directed Brokerage Fund",
+                "type": "mutual fund",
+                "is_cash_equivalent": False,
+            },
+        ],
+    }
+
+    rows = normalize_plaid_item(
+        accounts=accounts,
+        holdings_response=holdings_response,
+        balances_response={"accounts": []},
+        snapshot_date="2026-05-18",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["plaid_security_id"] == "sec-fund"
+    assert rows[0]["display_name"] == "Instl 500 Index Trust"
+    assert all(r["plaid_security_id"] != "sec-self-directed" for r in rows)
+
+
+@pytest.mark.parametrize(
+    ("security_name", "expected_in_snapshot"),
+    [
+        ("Self-Directed Brokerage Fund", False),
+        ("self directed fund", False),
+        ("SELF DIRECT BROKERAGE", False),
+        ("Instl 500 Index Trust", True),
+    ],
+)
+def test_self_directed_reference_name_filter(security_name: str, expected_in_snapshot: bool) -> None:
+    accounts = [
+        {
+            "account_id": "acc-401k",
+            "type": "investment",
+            "subtype": "401k",
+            "name": "401(k)",
+        },
+    ]
+    holdings_response = {
+        "holdings": [
+            {
+                "account_id": "acc-401k",
+                "security_id": "sec-test",
+                "institution_value": 100.0,
+                "quantity": 1.0,
+                "institution_price": 100.0,
+            },
+        ],
+        "securities": [
+            {
+                "security_id": "sec-test",
+                "name": security_name,
+                "type": "mutual fund",
+                "is_cash_equivalent": False,
+            },
+        ],
+    }
+
+    rows = normalize_plaid_item(
+        accounts=accounts,
+        holdings_response=holdings_response,
+        balances_response={"accounts": []},
+        snapshot_date="2026-05-18",
+    )
+
+    if expected_in_snapshot:
+        assert len(rows) == 1
+        assert rows[0]["plaid_security_id"] == "sec-test"
+    else:
+        assert rows == []
 
 
 def test_investment_holding_falls_back_to_security_id_when_ticker_missing() -> None:

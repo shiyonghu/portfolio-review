@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+_SELF_DIRECTED_REFERENCE_RE = re.compile(
+    r"self[\s\-]*direct(?:ed)?",
+    re.IGNORECASE,
+)
 
 
 def _to_bool_int(value: Any) -> int | None:
@@ -34,6 +40,11 @@ def _is_cash_security(security: Mapping[str, Any], asset_name: str) -> bool:
         or str(security.get("type") or "").lower() == "cash"
         or asset_name == "CUR:USD"
     )
+
+
+def _is_self_directed_reference_security(security: Mapping[str, Any]) -> bool:
+    name = str(security.get("name") or "")
+    return bool(_SELF_DIRECTED_REFERENCE_RE.search(name))
 
 
 def _holding_value(holding: Mapping[str, Any], *, is_stock_plan: bool, is_cash: bool) -> float:
@@ -145,6 +156,8 @@ def normalize_plaid_item(
         if account_id not in account_by_id:
             continue
         security = security_by_id.get(str(security_id), {})
+        if _is_self_directed_reference_security(security):
+            continue
         ticker = str(security.get("ticker_symbol") or "").strip()
         asset_name = ticker or str(security_id)
         account = account_by_id[account_id]

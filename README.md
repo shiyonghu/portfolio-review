@@ -467,6 +467,8 @@ Default DB path is `portfolio.db` in the repo root (override with `PORTFOLIO_DB_
 
 After each snapshot, check `snapshots/raw/<date>/<item_id>-holdings.json` and `*-balances.json` when normalized values look wrong.
 
+Plaid holdings whose security name matches `self … direct(ed)` (case-insensitive, optional hyphen or spaces) are excluded during normalization as cross-account references (for example Vanguard `Self-Directed Brokerage Fund` in a 401(k)), similar to Fidelity `BROKERAGELINK` rows with an empty symbol.
+
 ### CSV exports
 
 Human-readable exports: `snapshots/csv/<date>.csv` (detail + summary sections).
